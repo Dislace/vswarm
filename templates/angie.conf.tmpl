@@ -43,6 +43,13 @@ http {
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
 
+        # Low-latency interactive terminal: send keystrokes immediately
+        # (disable Nagle) and don't buffer the WebSocket stream.
+        tcp_nodelay on;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_socket_keepalive on;
+
         location / {
             if ($vswarm_upstream = "") {
                 return 403 "vibeswarm: no workspace mapped for this identity\n";
