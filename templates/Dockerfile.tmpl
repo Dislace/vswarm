@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 \
       make \
       g++ \
+      sudo \
+      vim \
  && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI — users run `gh auth login`; auth persists on their home volume.
@@ -26,7 +28,9 @@ RUN npm install -g \
  && npm cache clean --force
 
 RUN userdel -r node 2>/dev/null || true \
- && useradd -m -u 1000 -s /bin/bash ai-agent
+ && useradd -m -u 1000 -s /bin/bash ai-agent \
+ && echo 'ai-agent ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ai-agent \
+ && chmod 0440 /etc/sudoers.d/ai-agent
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

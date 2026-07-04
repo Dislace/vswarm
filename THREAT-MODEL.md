@@ -28,10 +28,28 @@ tenant, or an unauthenticated attacker, can reach.
 - **Tenants cannot reach each other.** Each tenant is on its own Docker network
   shared only with the proxy.
 - **No published host ports.** The tunnel is the sole ingress.
-- **Container hardening.** Workspaces run non-root with `cap_drop: ALL`,
-  `no-new-privileges`, read-only root filesystem (state on a writable home
-  volume), `pids_limit`, `ulimits`, and CPU/memory limits.
+- **Container hardening.** Workspaces run as the non-root `ai-agent` user by
+  default, each on its own network, with `pids`, `ulimits`, and CPU/memory
+  limits.
 - **SSH key perms.** Per-tenant `.ssh` is `0700`.
+
+### Workspace privilege posture (dev-env default)
+
+The default image ships `sudo` (passwordless for `ai-agent`) and a writable root
+filesystem so the workspace behaves like a normal dev box (`apt install`, edit
+`/etc`). This deliberately trades the stricter `cap_drop: ALL` +
+`no-new-privileges` + read-only-rootfs posture for ergonomics, and assumes the
+**tenants themselves are trusted** (they can already root their own container via
+the agents they run). It does **not** weaken the boundaries that matter between
+users: per-tenant network isolation, the unreachable-by-tenants proxy, resource
+limits, and the Access identity gate all still hold — a tenant rooting its own
+container cannot reach another tenant or the proxy.
+
+If you are running genuinely hostile tenants, re-add to each workspace service in
+`templates/docker-compose.yml.tmpl`: `read_only: true` (+ `tmpfs: [/tmp, /run]`),
+`cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, and drop `sudo` from
+`templates/Dockerfile.tmpl`. The isolation invariants above are independent of
+this choice.
 
 ## The header-trust assumption (and how to remove it)
 

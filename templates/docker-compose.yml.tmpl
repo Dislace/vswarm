@@ -64,14 +64,8 @@ services:
       - VSWARM_USER={{.Name}}
     volumes:
       - ./config/{{.Name}}/home:/home/ai-agent
-    read_only: true
     tmpfs:
-      - /tmp
       - /run
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     ulimits:
       nofile: 4096
     deploy:

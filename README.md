@@ -66,6 +66,12 @@ once and the credentials persist on their home volume. To offer more agents
 (OpenCode, Cursor), add them to the `npm install -g` line in
 `templates/Dockerfile.tmpl` and `vswarm build`.
 
+The image is a working dev box: `git`, `ripgrep`, `vim`, build tools, and
+passwordless `sudo` on a writable root filesystem. That relaxes the strict
+container hardening in favour of ergonomics and assumes tenants are trusted — see
+[THREAT-MODEL.md](THREAT-MODEL.md#workspace-privilege-posture-dev-env-default)
+for the trade-off and how to re-harden for hostile tenants.
+
 ## Security
 
 These containers run untrusted, LLM-generated code — treat them as hostile. VibeSwarm isolates each tenant on its own Docker network, binds the proxy so tenants can't reach it, hardens the workspace containers, and fails closed on unknown identity. Read **[THREAT-MODEL.md](THREAT-MODEL.md)** before exposing this to real users, and **[SECURITY.md](SECURITY.md)** to report issues.

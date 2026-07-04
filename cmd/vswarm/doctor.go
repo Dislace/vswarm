@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/dislace/vibeswarm/internal/dockerx"
+	"github.com/dislace/vibeswarm/internal/render"
 )
 
 func cmdDoctor() error {
@@ -38,6 +39,11 @@ func cmdDoctor() error {
 	}
 
 	for _, t := range c.Tenants {
+		authed, detail := tenantTokenAuthenticates(t.Name)
+		check("token authenticates for "+t.Name, authed, detail)
+	}
+
+	for _, t := range c.Tenants {
 		p := filepath.Join("config", t.Name, "home", ".ssh")
 		mode, merr := dirMode(p)
 		check("ssh perms 700 for "+t.Name, merr == nil && mode == 0o700, modeStr(mode, merr))
@@ -66,6 +72,36 @@ func anyPublishedPorts() (bool, string) {
 func tenantReachesProxy(container string) bool {
 	_, err := dockerx.Exec(container, "curl", "-sS", "-m", "3", "-o", "/dev/null", "http://vswarm-proxy:8080/")
 	return err == nil
+}
+
+func tenantTokenAuthenticates(name string) (bool, string) {
+	p := filepath.Join(render.GeneratedDir, "angie", "tenants", name+".token")
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return false, "no token file"
+	}
+	token := tokenFromLine(string(raw))
+	if token == "" {
+		return false, "empty token"
+	}
+	out, err := dockerx.Exec("vswarm-"+name, "curl", "-sS", "-m", "5",
+		"-H", "Authorization: Bearer "+token,
+		"http://127.0.0.1:3773/api/auth/session")
+	if err != nil {
+		return false, errStr(err)
+	}
+	if !strings.Contains(out, `"authenticated":true`) {
+		return false, "server rejected token"
+	}
+	return true, ""
+}
+
+func tokenFromLine(s string) string {
+	fields := strings.Split(s, `"`)
+	if len(fields) < 4 {
+		return ""
+	}
+	return fields[3]
 }
 
 func dirMode(p string) (os.FileMode, error) {
