@@ -10,7 +10,7 @@ import (
 const composeFile = "generated/docker-compose.yml"
 
 func Compose(args ...string) error {
-	full := append([]string{"compose", "-f", composeFile}, args...)
+	full := append([]string{"compose", "--project-directory", ".", "-f", composeFile}, args...)
 	cmd := exec.Command("docker", full...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
