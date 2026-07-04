@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that VibeSwarm makes hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should happen? CLI surface, config, or behavior changes.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Design constraints
+      description: VibeSwarm keeps a small, secure-by-default surface.
+      options:
+        - label: This can be done without adding a third-party Go dependency
+        - label: This preserves the isolation invariants in THREAT-MODEL.md

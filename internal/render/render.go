@@ -7,8 +7,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/dislace/vibeswarm/internal/config"
-	"github.com/dislace/vibeswarm/templates"
+	"github.com/dislace/vswarm/internal/config"
+	"github.com/dislace/vswarm/templates"
 )
 
 const (

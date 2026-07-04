@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in VibeSwarm doesn't work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a report. **Do not include secrets** — tunnel tokens,
+        T3 bearer tokens, `.env` contents, or anything from `generated/`. For a
+        security vulnerability, follow [SECURITY.md](../SECURITY.md) instead of
+        opening an issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. vswarm ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`vswarm doctor` output"
+      description: If the stack is up, paste the output (redact identities).
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Output of `git rev-parse --short HEAD`
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Docker version, Go version, angie image tag.
+    validations:
+      required: true

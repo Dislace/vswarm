@@ -20,7 +20,7 @@ USAGE
   scripts/import-claude-memory.sh --dest <home-dir>  [options]
 
 TARGET (one required)
-  --container <name>   docker cp into a running workspace (e.g. vswarm-alenhay)
+  --container <name>   docker cp into a running workspace (e.g. vswarm-alex)
   --dest <dir>         copy into a home directory on disk (a mounted home volume,
                        e.g. config/<tenant>/home) — for operator/Ansible use
 
@@ -37,10 +37,10 @@ OPTIONS
 
 EXAMPLES
   # Your laptop, into your running container (needs docker access to the host):
-  scripts/import-claude-memory.sh --container vswarm-alenhay
+  scripts/import-claude-memory.sh --container vswarm-alex
 
   # Operator: seed a tenant's home volume before `vswarm up`:
-  scripts/import-claude-memory.sh --dest config/alenhay/home --match '*/Dislace/*'
+  scripts/import-claude-memory.sh --dest config/alex/home --match '*/myorg/*'
 EOF
 }
 

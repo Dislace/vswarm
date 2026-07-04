@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dislace/vibeswarm/internal/config"
-	"github.com/dislace/vibeswarm/internal/dockerx"
-	"github.com/dislace/vibeswarm/internal/render"
+	"github.com/dislace/vswarm/internal/config"
+	"github.com/dislace/vswarm/internal/dockerx"
+	"github.com/dislace/vswarm/internal/render"
 )
 
 const (
