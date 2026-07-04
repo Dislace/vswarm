@@ -70,7 +70,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    pids_limit: {{$.Pids}}
     ulimits:
       nofile: 4096
     deploy:
@@ -78,6 +77,7 @@ services:
         limits:
           cpus: "{{$.CPUs}}"
           memory: {{$.Memory}}
+          pids: {{$.Pids}}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3773/api/auth/session"]
       interval: 15s
