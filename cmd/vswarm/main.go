@@ -135,7 +135,7 @@ func cmdUp() error {
 	if err := render.Render(c); err != nil {
 		return err
 	}
-	if err := dockerx.Compose("up", "-d"); err != nil {
+	if err := dockerx.Compose("up", "-d", "--remove-orphans"); err != nil {
 		return err
 	}
 	for _, t := range c.Tenants {
