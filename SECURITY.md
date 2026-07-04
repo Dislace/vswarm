@@ -7,7 +7,7 @@ seriously.
 
 Please **do not** open a public issue for security problems. Instead, report
 privately via GitHub Security Advisories ("Report a vulnerability" on the
-Security tab) or email the maintainers.
+Security tab) or email **contact@dislace.com**.
 
 Include: what you found, how to reproduce it, and the impact. We aim to
 acknowledge within 72 hours and to coordinate a fix and disclosure timeline with
