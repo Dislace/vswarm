@@ -1,0 +1,5 @@
+ignored:
+  # Intentionally track latest: apt packages and the agent CLIs (t3,
+  # claude-code, codex) are not pinned so workspaces get current tooling.
+  - DL3008
+  - DL3016
