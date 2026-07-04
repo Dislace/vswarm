@@ -61,8 +61,10 @@ That's it — Access + the tunnel are the trust boundary; angie routes and injec
 ## Customizing the workspace
 
 The workspace image installs `t3`, `@anthropic-ai/claude-code`, and
-`@openai/codex`. To offer more agents (OpenCode, Cursor), add them to the
-`npm install -g` line in `templates/Dockerfile.tmpl` and `vswarm build`.
+`@openai/codex`, plus the GitHub CLI (`gh`) — each user runs `gh auth login`
+once and the credentials persist on their home volume. To offer more agents
+(OpenCode, Cursor), add them to the `npm install -g` line in
+`templates/Dockerfile.tmpl` and `vswarm build`.
 
 ## Security
 
