@@ -1,0 +1,8 @@
+# Optional config-mode ingress (default is token mode) — see DEPLOYMENT.md.
+tunnel: <TUNNEL-UUID>
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: {{.Domain}}
+    service: http://vswarm-proxy:{{.ProxyPort}}
+  - service: http_status:404

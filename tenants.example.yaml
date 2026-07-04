@@ -1,0 +1,31 @@
+# VibeSwarm tenant manifest — the ONLY file a human (or Ansible) edits.
+# `vswarm render` turns this into generated/docker-compose.yml + angie config.
+#
+# NOTE: the parser supports this exact, simple schema (top-level scalars +
+# a `tenants:` list of {email, name}). Keep it flat; see docs/DEPLOYMENT.md.
+
+# Public hostname fronted by Cloudflare Access (no scheme).
+domain: t3code.example.com
+
+# Workspace image name (built by `vswarm build`).
+image: vswarm/workspace:latest
+
+# Per-tenant resource limits (applied to every workspace container).
+resources:
+  cpus: "2.0"
+  memory: 6g
+  pids: 512
+
+# Bearer-token lifetime minted for each tenant's T3 session.
+# `vswarm pair` re-mints before expiry.
+token_ttl: 30d
+
+# One entry per user. `name` must be DNS-safe: [a-z0-9-], used for
+# container/network/volume names (vswarm-<name>, vswarm-net-<name>).
+# `email` MUST match the identity Cloudflare Access asserts
+# (Cf-Access-Authenticated-User-Email).
+tenants:
+  - email: sarah@example.com
+    name: sarah
+  - email: alex@example.com
+    name: alex

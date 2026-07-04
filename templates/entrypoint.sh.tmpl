@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p "${T3CODE_HOME}" /home/ai-agent/repos
+
+exec t3 serve \
+  --mode web \
+  --host 0.0.0.0 \
+  --port 3773 \
+  --base-dir "${T3CODE_HOME}" \
+  --auto-bootstrap-project-from-cwd \
+  /home/ai-agent/repos
