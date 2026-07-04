@@ -72,6 +72,27 @@ container hardening in favour of ergonomics and assumes tenants are trusted — 
 [THREAT-MODEL.md](THREAT-MODEL.md#workspace-privilege-posture-dev-env-default)
 for the trade-off and how to re-harden for hostile tenants.
 
+### Bringing your Claude Code memory along
+
+Claude Code keys its per-project memory to the project's absolute path, so memory
+copied from a laptop to a workspace with a different home directory won't load
+until the path prefix is remapped. `scripts/import-claude-memory.sh` does that
+remap and copies it in:
+
+```sh
+# From the machine that has the memory, into a running workspace:
+scripts/import-claude-memory.sh --container vswarm-<user> --match '*/myorg/*'
+
+# Or seed a tenant's home volume on the host before `vswarm up`:
+scripts/import-claude-memory.sh --dest config/<user>/home --match '*/myorg/*'
+```
+
+It only moves the distilled `memory/` (not raw session transcripts) unless you
+pass `--all`, and `--dry-run` shows the remap first. A project resolves only if
+its checkout lives at the same path under the workspace home as it did on the
+source machine. Note that memory can carry infra details and secrets — importing
+it into an agent container with open egress is a data-exposure decision.
+
 ## Security
 
 These containers run untrusted, LLM-generated code — treat them as hostile. VibeSwarm isolates each tenant on its own Docker network, binds the proxy so tenants can't reach it, hardens the workspace containers, and fails closed on unknown identity. Read **[THREAT-MODEL.md](THREAT-MODEL.md)** before exposing this to real users, and **[SECURITY.md](SECURITY.md)** to report issues.

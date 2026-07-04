@@ -30,4 +30,4 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck templates/entrypoint.sh.tmpl
+          shellcheck templates/entrypoint.sh.tmpl scripts/*.sh
