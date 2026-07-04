@@ -31,6 +31,9 @@ RUN userdel -r node 2>/dev/null || true \
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+COPY prompt.sh /tmp/prompt.sh
+RUN cat /tmp/prompt.sh >> /etc/bash.bashrc && rm /tmp/prompt.sh
+
 USER ai-agent
 ENV T3CODE_HOME=/home/ai-agent/.config/t3
 WORKDIR /home/ai-agent/repos

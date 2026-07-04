@@ -56,10 +56,12 @@ services:
     image: {{$.Image}}
     container_name: {{.Container}}
     restart: unless-stopped
+    hostname: {{$.Team}}
     networks:
       - {{.Net}}
     environment:
       - T3CODE_HOME=/home/ai-agent/.config/t3
+      - VSWARM_USER={{.Name}}
     volumes:
       - ./config/{{.Name}}/home:/home/ai-agent
     read_only: true

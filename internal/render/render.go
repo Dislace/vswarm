@@ -30,6 +30,7 @@ type tenantView struct {
 type view struct {
 	Domain       string
 	Image        string
+	Team         string
 	CPUs         string
 	Memory       string
 	Pids         int
@@ -43,9 +44,14 @@ type view struct {
 }
 
 func buildView(c *config.Config) view {
+	team := c.Team
+	if team == "" {
+		team = strings.SplitN(c.Domain, ".", 2)[0]
+	}
 	v := view{
 		Domain:       c.Domain,
 		Image:        c.Image,
+		Team:         team,
 		CPUs:         c.Resources.CPUs,
 		Memory:       c.Resources.Memory,
 		Pids:         c.Resources.Pids,
@@ -93,6 +99,7 @@ func Render(c *config.Config) error {
 		{"angie.conf.tmpl", filepath.Join(GeneratedDir, "angie", "angie.conf"), 0o644},
 		{"Dockerfile.tmpl", filepath.Join(GeneratedDir, "image", "Dockerfile"), 0o644},
 		{"entrypoint.sh.tmpl", filepath.Join(GeneratedDir, "image", "entrypoint.sh"), 0o755},
+		{"prompt.sh.tmpl", filepath.Join(GeneratedDir, "image", "prompt.sh"), 0o644},
 	}
 	for _, f := range files {
 		if err := renderTemplate(f.tmpl, f.dst, v, f.mode); err != nil {
