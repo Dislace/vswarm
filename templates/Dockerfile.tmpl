@@ -17,7 +17,8 @@ RUN npm install -g \
       @openai/codex \
  && npm cache clean --force
 
-RUN useradd -m -u 1000 -s /bin/bash ai-agent
+RUN userdel -r node 2>/dev/null || true \
+ && useradd -m -u 1000 -s /bin/bash ai-agent
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
