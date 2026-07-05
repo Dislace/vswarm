@@ -68,6 +68,7 @@ services:
       - /run
     ulimits:
       nofile: 4096
+    pids_limit: {{$.Pids}}
     deploy:
       resources:
         limits:

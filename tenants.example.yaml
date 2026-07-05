@@ -14,7 +14,7 @@ image: vswarm/workspace:latest
 resources:
   cpus: "2.0"
   memory: 6g
-  pids: 512
+  pids: 4096
 
 # Bearer-token lifetime minted for each tenant's T3 session.
 # `vswarm pair` re-mints before expiry.

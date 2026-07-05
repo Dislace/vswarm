@@ -251,7 +251,7 @@ image: vswarm/workspace:latest
 resources:
   cpus: "2.0"
   memory: 6g
-  pids: 512
+  pids: 4096
 token_ttl: 30d
 tenants:
   - email: you@example.com

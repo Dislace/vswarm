@@ -37,7 +37,7 @@ var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 func Default() *Config {
 	return &Config{
 		Image:        "vswarm/workspace:latest",
-		Resources:    Resources{CPUs: "2.0", Memory: "6g", Pids: 512},
+		Resources:    Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
 		TokenTTL:     "30d",
 		ManageTunnel: true,
 	}
