@@ -22,6 +22,24 @@ flag/env-driven, and exits non-zero on failure.
 `tenants.yaml` and `.env` are **consumed, not owned** by this repo — they are
 gitignored, and the deployment layer templates the real ones.
 
+### Workspace image overlay (optional)
+
+To bake a deployment-specific toolchain into the workspace without forking
+`templates/Dockerfile.tmpl`, ship a Dockerfile alongside `tenants.yaml` and
+point `image_overlay:` at it:
+
+```dockerfile
+ARG VSWARM_BASE_IMAGE
+FROM ${VSWARM_BASE_IMAGE}
+RUN npm install -g bun && apt-get update && apt-get install -y --no-install-recommends jq \
+ && rm -rf /var/lib/apt/lists/*
+```
+
+`vswarm build` builds the stock image under `<image>-base`, then layers the
+overlay on top as the final `image:` tag. The overlay file's directory is its
+build context. A deployment layer driving `docker build` itself follows the
+same two-step contract.
+
 ## Commands the deployment layer runs
 
 ```bash

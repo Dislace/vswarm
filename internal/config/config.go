@@ -22,6 +22,7 @@ type Resources struct {
 type Config struct {
 	Domain       string
 	Image        string
+	ImageOverlay string
 	Team         string
 	Resources    Resources
 	TokenTTL     string
@@ -69,6 +70,9 @@ func Parse(path string) (*Config, error) {
 				if val != "" {
 					c.Image = unquote(val)
 				}
+				section = ""
+			case "image_overlay":
+				c.ImageOverlay = unquote(val)
 				section = ""
 			case "team":
 				c.Team = unquote(val)
@@ -191,6 +195,9 @@ func (c *Config) Save() error {
 	b.WriteString("# VibeSwarm tenant manifest (managed by `vswarm`).\n")
 	fmt.Fprintf(&b, "domain: %s\n", c.Domain)
 	fmt.Fprintf(&b, "image: %s\n", c.Image)
+	if c.ImageOverlay != "" {
+		fmt.Fprintf(&b, "image_overlay: %s\n", c.ImageOverlay)
+	}
 	if c.Team != "" {
 		fmt.Fprintf(&b, "team: %s\n", c.Team)
 	}
