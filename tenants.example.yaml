@@ -10,6 +10,13 @@ domain: t3code.example.com
 # Workspace image name (built by `vswarm build`).
 image: vswarm/workspace:latest
 
+# Optional deployment-owned Dockerfile layered onto the stock image by
+# `vswarm build` (extra toolchains, org CLIs — no fork of the built-in
+# template). Contract: it must start with `ARG VSWARM_BASE_IMAGE` and
+# `FROM ${VSWARM_BASE_IMAGE}`; its directory is the build context. The stock
+# image is built under `<image>-base`; the overlay produces the final tag.
+# image_overlay: workspace-overlay.Dockerfile
+
 # Per-tenant resource limits (applied to every workspace container).
 resources:
   cpus: "2.0"
