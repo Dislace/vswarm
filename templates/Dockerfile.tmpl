@@ -23,8 +23,8 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 
 RUN npm install -g \
       t3 \
-      @anthropic-ai/claude-code \
-      @openai/codex \
+      @anthropic-ai/claude-code@2.1.205 \
+      @openai/codex@0.143.0 \
  && npm cache clean --force
 
 RUN userdel -r node 2>/dev/null || true \
