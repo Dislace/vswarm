@@ -40,6 +40,40 @@ overlay on top as the final `image:` tag. The overlay file's directory is its
 build context. A deployment layer driving `docker build` itself follows the
 same two-step contract.
 
+### Dev postgres sidecar (optional, per tenant)
+
+Opt a tenant in with `services: [postgres]` in `tenants.yaml`. `services` is an
+inline flow list (the tenant block has no block-list form); unknown service
+names are rejected at parse time. For each opted-in tenant, `vswarm up` runs:
+
+- a container `vswarm-db-<name>` joined **only** to that tenant's network
+  (`vswarm-net-<name>`), image from the top-level `db_image:` key (default
+  `timescale/timescaledb:2.28.2-pg17`), memory-capped at 1g;
+- a named volume `vswarm-dbdata-<name>` for `/var/lib/postgresql/data`, so the
+  database survives container recreates.
+
+`vswarm` mints a random postgres password per tenant at render time and writes
+the connection contract into the tenant home as `~/.pg.env` (mode `0600`, uid
+`1000` — same delivery model as `.infisical.env`). The password **persists**:
+`~/.pg.env` is the source of truth, so re-renders/re-ups never rotate it (delete
+the file to force a new one). The same password is passed to the db container as
+`POSTGRES_PASSWORD`. `~/.pg.env` contents:
+
+```sh
+PGHOST=vswarm-db-<name>
+PGPORT=5432
+PGUSER=postgres
+PGPASSWORD=<minted>
+PGDATABASE=postgres
+```
+
+Apps run natively in the workspace (`bun run start:dev`) against it; reset with
+`dropdb && createdb && bun run migration:run`.
+
+`vswarm doctor` gains two invariants per postgres tenant: (a) no other tenant's
+workspace can open a TCP connection to this tenant's db container, and (b) the
+db container is attached to exactly its own tenant network.
+
 ## Commands the deployment layer runs
 
 ```bash

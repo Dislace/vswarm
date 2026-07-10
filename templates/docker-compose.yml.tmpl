@@ -82,3 +82,37 @@ services:
       retries: 10
       start_period: 40s
 {{end}}
+{{- range .Tenants}}{{if .Postgres}}
+  {{.DBContainer}}:
+    image: {{$.DBImage}}
+    container_name: {{.DBContainer}}
+    restart: unless-stopped
+    networks:
+      - {{.Net}}
+    environment:
+      - POSTGRES_PASSWORD={{.PGPassword}}
+    volumes:
+      - {{.DBVolume}}:/var/lib/postgresql/data
+    tmpfs:
+      - /run
+    deploy:
+      resources:
+        limits:
+          memory: {{$.DBMemory}}
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+{{- end}}{{end}}
+{{- if .AnyPostgres}}
+
+volumes:
+{{- range .Tenants}}{{if .Postgres}}
+  {{.DBVolume}}:
+    name: {{.DBVolume}}
+{{- end}}{{end}}
+{{- end}}

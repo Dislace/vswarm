@@ -1,6 +1,8 @@
 package render
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +19,9 @@ const (
 	ProxyPort    = "8080"
 	EdgeSubnet   = "172.31.0.0/24"
 	ProxyIP      = "172.31.0.2"
+	PGPort       = "5432"
+	// DBMemory caps every postgres sidecar (policy, not per-tenant tunable).
+	DBMemory = "1g"
 )
 
 type tenantView struct {
@@ -25,11 +30,20 @@ type tenantView struct {
 	Container string
 	Net       string
 	Subnet    string
+
+	Postgres    bool
+	DBContainer string
+	DBVolume    string
+	PGUser      string
+	PGDatabase  string
+	PGPassword  string
 }
 
 type view struct {
 	Domain       string
 	Image        string
+	DBImage      string
+	DBMemory     string
 	Team         string
 	CPUs         string
 	Memory       string
@@ -40,6 +54,7 @@ type view struct {
 	T3Port       string
 	ManageTunnel bool
 	EdgeExternal bool
+	AnyPostgres  bool
 	Tenants      []tenantView
 }
 
@@ -51,6 +66,8 @@ func buildView(c *config.Config) view {
 	v := view{
 		Domain:       c.Domain,
 		Image:        c.Image,
+		DBImage:      c.DBImage,
+		DBMemory:     DBMemory,
 		Team:         team,
 		CPUs:         c.Resources.CPUs,
 		Memory:       c.Resources.Memory,
@@ -63,13 +80,22 @@ func buildView(c *config.Config) view {
 		EdgeExternal: c.EdgeExternal,
 	}
 	for i, t := range c.Tenants {
-		v.Tenants = append(v.Tenants, tenantView{
+		tv := tenantView{
 			Name:      t.Name,
 			Email:     t.Email,
 			Container: "vswarm-" + t.Name,
 			Net:       "vswarm-net-" + t.Name,
 			Subnet:    fmt.Sprintf("172.31.%d.0/24", 10+i),
-		})
+		}
+		if t.HasService("postgres") {
+			tv.Postgres = true
+			tv.DBContainer = "vswarm-db-" + t.Name
+			tv.DBVolume = "vswarm-dbdata-" + t.Name
+			tv.PGUser = "postgres"
+			tv.PGDatabase = "postgres"
+			v.AnyPostgres = true
+		}
+		v.Tenants = append(v.Tenants, tv)
 	}
 	return v
 }
@@ -87,6 +113,20 @@ func Render(c *config.Config) error {
 		filepath.Join(GeneratedDir, "image"),
 	} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
+			return err
+		}
+	}
+
+	for i := range v.Tenants {
+		if !v.Tenants[i].Postgres {
+			continue
+		}
+		pw, err := resolvePGPassword(v.Tenants[i].Name)
+		if err != nil {
+			return err
+		}
+		v.Tenants[i].PGPassword = pw
+		if err := writePGEnv(v.Tenants[i]); err != nil {
 			return err
 		}
 	}
@@ -125,6 +165,57 @@ func Render(c *config.Config) error {
 		}
 	}
 	return nil
+}
+
+// resolvePGPassword returns the tenant's persisted postgres password, minting a
+// fresh one only when no prior ~/.pg.env exists — re-renders never rotate it.
+func resolvePGPassword(name string) (string, error) {
+	if raw, err := os.ReadFile(pgEnvPath(name)); err == nil {
+		if pw := pgEnvValue(string(raw), "PGPASSWORD"); pw != "" {
+			return pw, nil
+		}
+	}
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// writePGEnv delivers the connection contract into the tenant home (mode 0600,
+// uid 1000 when running as root — the same ownership model as .infisical.env).
+func writePGEnv(t tenantView) error {
+	p := pgEnvPath(t.Name)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	content := fmt.Sprintf("PGHOST=%s\nPGPORT=%s\nPGUSER=%s\nPGPASSWORD=%s\nPGDATABASE=%s\n",
+		t.DBContainer, PGPort, t.PGUser, t.PGPassword, t.PGDatabase)
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(p, 0o600); err != nil {
+		return err
+	}
+	if os.Geteuid() == 0 {
+		if err := os.Chown(p, 1000, 1000); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pgEnvPath(name string) string {
+	return filepath.Join("config", name, "home", ".pg.env")
+}
+
+func pgEnvValue(env, key string) string {
+	for _, ln := range strings.Split(env, "\n") {
+		if k, v, ok := strings.Cut(ln, "="); ok && strings.TrimSpace(k) == key {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 func renderTemplate(name, dst string, v view, mode os.FileMode) error {

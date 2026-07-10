@@ -11,6 +11,7 @@ func TestParseValidateAndSaveRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tenants.yaml")
 	input := `domain: code.example.com
 image: registry.example.com/vswarm:v1
+db_image: registry.example.com/timescaledb:pg17
 team: platform
 resources:
   cpus: "3.5"
@@ -22,6 +23,7 @@ edge_external: true
 tenants:
   - email: alice@example.com
     name: alice
+    services: [postgres]
   - email: bob@example.com
     name: bob-dev
 `
@@ -48,6 +50,12 @@ tenants:
 	if len(got.Tenants) != 2 || got.Tenants[1].Name != "bob-dev" {
 		t.Fatalf("unexpected tenants: %#v", got.Tenants)
 	}
+	if got.DBImage != "registry.example.com/timescaledb:pg17" {
+		t.Fatalf("unexpected db_image: %q", got.DBImage)
+	}
+	if !got.Tenants[0].HasService("postgres") || got.Tenants[1].HasService("postgres") {
+		t.Fatalf("unexpected services: %#v", got.Tenants)
+	}
 
 	if err := got.Save(); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -61,13 +69,27 @@ tenants:
 	}
 	if roundTrip.Domain != got.Domain ||
 		roundTrip.Image != got.Image ||
+		roundTrip.DBImage != got.DBImage ||
 		roundTrip.Team != got.Team ||
 		roundTrip.Resources != got.Resources ||
 		roundTrip.TokenTTL != got.TokenTTL ||
 		roundTrip.ManageTunnel != got.ManageTunnel ||
 		roundTrip.EdgeExternal != got.EdgeExternal ||
-		len(roundTrip.Tenants) != len(got.Tenants) {
+		len(roundTrip.Tenants) != len(got.Tenants) ||
+		!roundTrip.Tenants[0].HasService("postgres") {
 		t.Fatalf("round trip mismatch:\nwant %#v\ngot  %#v", got, roundTrip)
+	}
+}
+
+func TestParseRejectsUnknownService(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	in := "domain: code.example.com\ntenants:\n  - email: a@example.com\n    name: a\n    services: [postgres, mongo]\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Parse(path)
+	if err == nil || !strings.Contains(err.Error(), `unknown service "mongo"`) {
+		t.Fatalf("Parse() error = %v, want unknown service", err)
 	}
 }
 

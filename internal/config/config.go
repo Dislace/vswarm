@@ -9,8 +9,18 @@ import (
 )
 
 type Tenant struct {
-	Email string
-	Name  string
+	Email    string
+	Name     string
+	Services []string
+}
+
+func (t Tenant) HasService(name string) bool {
+	for _, s := range t.Services {
+		if s == name {
+			return true
+		}
+	}
+	return false
 }
 
 type Resources struct {
@@ -23,6 +33,7 @@ type Config struct {
 	Domain       string
 	Image        string
 	ImageOverlay string
+	DBImage      string
 	Team         string
 	Resources    Resources
 	TokenTTL     string
@@ -35,9 +46,14 @@ type Config struct {
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
+// knownServices bounds the tenant `services:` list; unknown names are rejected
+// at parse time so a typo can never silently drop a sidecar.
+var knownServices = map[string]bool{"postgres": true}
+
 func Default() *Config {
 	return &Config{
 		Image:        "vswarm/workspace:latest",
+		DBImage:      "timescale/timescaledb:2.28.2-pg17",
 		Resources:    Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
 		TokenTTL:     "30d",
 		ManageTunnel: true,
@@ -73,6 +89,11 @@ func Parse(path string) (*Config, error) {
 				section = ""
 			case "image_overlay":
 				c.ImageOverlay = unquote(val)
+				section = ""
+			case "db_image":
+				if val != "" {
+					c.DBImage = unquote(val)
+				}
 				section = ""
 			case "team":
 				c.Team = unquote(val)
@@ -117,24 +138,36 @@ func Parse(path string) (*Config, error) {
 				rest := strings.TrimSpace(strings.TrimPrefix(trim, "-"))
 				if rest != "" {
 					k, v := splitKV(rest)
-					applyTenant(&c.Tenants[len(c.Tenants)-1], k, v)
+					if err := applyTenant(&c.Tenants[len(c.Tenants)-1], k, v); err != nil {
+						return nil, fmt.Errorf("%s:%d: %w", path, n+1, err)
+					}
 				}
 			} else if len(c.Tenants) > 0 {
 				k, v := splitKV(trim)
-				applyTenant(&c.Tenants[len(c.Tenants)-1], k, v)
+				if err := applyTenant(&c.Tenants[len(c.Tenants)-1], k, v); err != nil {
+					return nil, fmt.Errorf("%s:%d: %w", path, n+1, err)
+				}
 			}
 		}
 	}
 	return c, nil
 }
 
-func applyTenant(t *Tenant, k, v string) {
+func applyTenant(t *Tenant, k, v string) error {
 	switch k {
 	case "email":
 		t.Email = unquote(v)
 	case "name":
 		t.Name = unquote(v)
+	case "services":
+		for _, s := range parseList(v) {
+			if !knownServices[s] {
+				return fmt.Errorf("unknown service %q", s)
+			}
+			t.Services = append(t.Services, s)
+		}
 	}
+	return nil
 }
 
 func (c *Config) Validate() error {
@@ -198,6 +231,9 @@ func (c *Config) Save() error {
 	if c.ImageOverlay != "" {
 		fmt.Fprintf(&b, "image_overlay: %s\n", c.ImageOverlay)
 	}
+	if c.DBImage != "" {
+		fmt.Fprintf(&b, "db_image: %s\n", c.DBImage)
+	}
 	if c.Team != "" {
 		fmt.Fprintf(&b, "team: %s\n", c.Team)
 	}
@@ -212,6 +248,9 @@ func (c *Config) Save() error {
 	for _, t := range c.Tenants {
 		fmt.Fprintf(&b, "  - email: %s\n", t.Email)
 		fmt.Fprintf(&b, "    name: %s\n", t.Name)
+		if len(t.Services) > 0 {
+			fmt.Fprintf(&b, "    services: [%s]\n", strings.Join(t.Services, ", "))
+		}
 	}
 	return os.WriteFile(c.Path, []byte(b.String()), 0o644)
 }
@@ -235,6 +274,22 @@ func splitKV(s string) (string, string) {
 
 func parseBool(s string) bool {
 	return strings.EqualFold(strings.TrimSpace(unquote(s)), "true")
+}
+
+// parseList reads an inline flow list (`[a, b]`) — the only list form the
+// tenant block supports, since a block list's `-` items collide with the
+// tenant delimiter.
+func parseList(s string) []string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "[")
+	s = strings.TrimSuffix(s, "]")
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = unquote(strings.TrimSpace(p)); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func unquote(s string) string {
