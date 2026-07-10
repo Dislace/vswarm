@@ -17,6 +17,11 @@ image: vswarm/workspace:latest
 # image is built under `<image>-base`; the overlay produces the final tag.
 # image_overlay: workspace-overlay.Dockerfile
 
+# Image for the per-tenant postgres sidecar (`services: [postgres]` below).
+# Started as `vswarm-db-<name>` on the tenant's own network; data lives on a
+# named volume `vswarm-dbdata-<name>` that survives container recreates.
+db_image: timescale/timescaledb:2.28.2-pg17
+
 # Per-tenant resource limits (applied to every workspace container).
 resources:
   cpus: "2.0"
@@ -31,8 +36,13 @@ token_ttl: 30d
 # container/network/volume names (vswarm-<name>, vswarm-net-<name>).
 # `email` MUST match the identity Cloudflare Access asserts
 # (Cf-Access-Authenticated-User-Email).
+# Optional `services:` opt-in per tenant (inline flow list — the tenant block
+# does not support block-style `-` lists). Only known services are accepted;
+# an unknown name is rejected at parse time. `postgres` starts a dev sidecar
+# and delivers ~/.pg.env into the tenant home (see docs/DEPLOYMENT.md).
 tenants:
   - email: sarah@example.com
     name: sarah
+    services: [postgres]
   - email: alex@example.com
     name: alex
