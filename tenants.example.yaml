@@ -40,9 +40,14 @@ token_ttl: 30d
 # does not support block-style `-` lists). Only known services are accepted;
 # an unknown name is rejected at parse time. `postgres` starts a dev sidecar
 # and delivers ~/.pg.env into the tenant home (see docs/DEPLOYMENT.md).
+# Optional `admin: true` marks a tenant for host SSH access. vswarm NEVER
+# touches host ssh config or authorized_keys — the deployment layer mints the
+# key at ~/.ssh/vswarm-admin; vswarm only carries the flag and enforces
+# doctor invariants around the key file (see docs/DEPLOYMENT.md).
 tenants:
   - email: sarah@example.com
     name: sarah
     services: [postgres]
+    admin: true
   - email: alex@example.com
     name: alex

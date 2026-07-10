@@ -74,6 +74,38 @@ Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 workspace can open a TCP connection to this tenant's db container, and (b) the
 db container is attached to exactly its own tenant network.
 
+### Admin host SSH access (optional, per tenant)
+
+Mark a tenant with `admin: true` in `tenants.yaml` to grant it SSH access to the
+host from inside its workspace. This is **split-ownership**: vswarm carries the
+flag and enforces invariants, but **vswarm NEVER touches host ssh config or
+`authorized_keys`** — minting and delivering the key is the deployment layer's
+job (for us, the `vswarm` Ansible role).
+
+Contract the deployment layer implements:
+
+- A dedicated ed25519 keypair per admin tenant (not the tenant's git key, so
+  revocation is independent and the sshd audit trail is clean).
+- The **private** half is delivered to the well-known path `~/.ssh/vswarm-admin`
+  inside the tenant home (mode `0600`, uid `1000`).
+- The **public** half goes into the host user's `authorized_keys`, source-pinned
+  to the tenant's own subnet (`from="172.31.<10+index>.0/24"`), so the key is
+  useless anywhere but that workspace. Revocation = flip `admin` off and
+  re-apply (the `authorized_keys` line is removed).
+
+`vswarm doctor` gains two invariants:
+
+- **(a)** no NON-admin tenant home contains a `~/.ssh/vswarm-admin` file — a
+  stranded admin key on a tenant that lost the flag fails the gate;
+- **(b)** every admin tenant's `~/.ssh/vswarm-admin` exists with mode `0600`.
+
+Usage from inside an admin workspace (the gateway is the tenant's own bridge
+gateway, `172.31.<10+index>.1`, where index is the tenant's roster position):
+
+```sh
+ssh -i ~/.ssh/vswarm-admin ubuntu@172.31.10.1
+```
+
 ## Commands the deployment layer runs
 
 ```bash
