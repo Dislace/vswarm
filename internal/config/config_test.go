@@ -24,6 +24,7 @@ tenants:
   - email: alice@example.com
     name: alice
     services: [postgres]
+    admin: true
   - email: bob@example.com
     name: bob-dev
 `
@@ -56,6 +57,9 @@ tenants:
 	if !got.Tenants[0].HasService("postgres") || got.Tenants[1].HasService("postgres") {
 		t.Fatalf("unexpected services: %#v", got.Tenants)
 	}
+	if !got.Tenants[0].Admin || got.Tenants[1].Admin {
+		t.Fatalf("unexpected admin flags: %#v", got.Tenants)
+	}
 
 	if err := got.Save(); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -76,7 +80,9 @@ tenants:
 		roundTrip.ManageTunnel != got.ManageTunnel ||
 		roundTrip.EdgeExternal != got.EdgeExternal ||
 		len(roundTrip.Tenants) != len(got.Tenants) ||
-		!roundTrip.Tenants[0].HasService("postgres") {
+		!roundTrip.Tenants[0].HasService("postgres") ||
+		roundTrip.Tenants[0].Admin != got.Tenants[0].Admin ||
+		roundTrip.Tenants[1].Admin != got.Tenants[1].Admin {
 		t.Fatalf("round trip mismatch:\nwant %#v\ngot  %#v", got, roundTrip)
 	}
 }

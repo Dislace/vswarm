@@ -12,6 +12,7 @@ type Tenant struct {
 	Email    string
 	Name     string
 	Services []string
+	Admin    bool
 }
 
 func (t Tenant) HasService(name string) bool {
@@ -166,6 +167,8 @@ func applyTenant(t *Tenant, k, v string) error {
 			}
 			t.Services = append(t.Services, s)
 		}
+	case "admin":
+		t.Admin = parseBool(v)
 	}
 	return nil
 }
@@ -250,6 +253,9 @@ func (c *Config) Save() error {
 		fmt.Fprintf(&b, "    name: %s\n", t.Name)
 		if len(t.Services) > 0 {
 			fmt.Fprintf(&b, "    services: [%s]\n", strings.Join(t.Services, ", "))
+		}
+		if t.Admin {
+			b.WriteString("    admin: true\n")
 		}
 	}
 	return os.WriteFile(c.Path, []byte(b.String()), 0o644)

@@ -50,6 +50,22 @@ func cmdDoctor() error {
 	}
 
 	for _, t := range c.Tenants {
+		if t.Admin {
+			continue
+		}
+		_, err := os.Stat(adminKeyPath(t.Name))
+		check("no admin key in non-admin home: "+t.Name, os.IsNotExist(err), adminKeyDetail(err))
+	}
+
+	for _, t := range c.Tenants {
+		if !t.Admin {
+			continue
+		}
+		mode, merr := dirMode(adminKeyPath(t.Name))
+		check("admin key 0600 for "+t.Name, merr == nil && mode == 0o600, modeStr(mode, merr))
+	}
+
+	for _, t := range c.Tenants {
 		if !t.HasService("postgres") {
 			continue
 		}
@@ -151,6 +167,20 @@ func tokenFromLine(s string) string {
 		return ""
 	}
 	return fields[3]
+}
+
+func adminKeyPath(name string) string {
+	return filepath.Join("config", name, "home", ".ssh", "vswarm-admin")
+}
+
+func adminKeyDetail(err error) string {
+	if err == nil {
+		return "present"
+	}
+	if os.IsNotExist(err) {
+		return ""
+	}
+	return err.Error()
 }
 
 func dirMode(p string) (os.FileMode, error) {
