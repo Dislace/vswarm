@@ -39,10 +39,19 @@ func TestRenderProducesIsolatedTenantConfiguration(t *testing.T) {
 		"memory: 7g",
 		"pids_limit: 3072",
 		"vswarm-tunnel:",
+		"vswarm-edge: {}",
 	} {
 		if !strings.Contains(compose, want) {
 			t.Errorf("generated compose missing %q", want)
 		}
+	}
+	if strings.Contains(compose, "ipv4_address:") {
+		t.Error("generated compose pins the proxy to a static edge-network address")
+	}
+
+	angie := readFile(t, filepath.Join(GeneratedDir, "angie", "angie.conf"))
+	if !strings.Contains(angie, "listen 8080;") {
+		t.Error("generated angie config does not listen on the container address")
 	}
 
 	assertFileEquals(

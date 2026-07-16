@@ -18,7 +18,6 @@ const (
 	T3Port       = "3773"
 	ProxyPort    = "8080"
 	EdgeSubnet   = "172.31.0.0/24"
-	ProxyIP      = "172.31.0.2"
 	PGPort       = "5432"
 	// DBMemory caps every postgres sidecar (policy, not per-tenant tunable).
 	DBMemory = "1g"
@@ -49,7 +48,6 @@ type view struct {
 	Memory       string
 	Pids         int
 	EdgeSubnet   string
-	ProxyIP      string
 	ProxyPort    string
 	T3Port       string
 	ManageTunnel bool
@@ -73,7 +71,6 @@ func buildView(c *config.Config) view {
 		Memory:       c.Resources.Memory,
 		Pids:         c.Resources.Pids,
 		EdgeSubnet:   EdgeSubnet,
-		ProxyIP:      ProxyIP,
 		ProxyPort:    ProxyPort,
 		T3Port:       T3Port,
 		ManageTunnel: c.ManageTunnel,
