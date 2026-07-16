@@ -30,7 +30,8 @@ services:
       - ./generated/angie/angie.conf:/etc/angie/angie.conf:ro
       - ./generated/angie/tenants:/etc/angie/tenants:ro
     networks:
-      vswarm-edge: {}
+      vswarm-edge:
+        ipv4_address: {{.ProxyIP}}
 {{- range .Tenants}}
       {{.Net}}: {}
 {{- end}}
