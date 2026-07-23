@@ -41,4 +41,34 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck templates/entrypoint.sh.tmpl scripts/*.sh
+          shellcheck templates/entrypoint.sh.tmpl templates/vswarm-tooling.sh.tmpl scripts/*.sh
+      - name: tooling lifecycle
+        run: ./scripts/test-vswarm-tooling.sh
+
+  workspace-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Render workspace build context
+        run: |
+          cp tenants.example.yaml tenants.yaml
+          go run ./cmd/vswarm render
+      - uses: docker/setup-buildx-action@v4
+      - name: Build workspace image
+        uses: docker/build-push-action@v7
+        with:
+          context: generated/image
+          load: true
+          tags: vswarm/workspace:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+      - name: Verify approved workspace tools
+        run: |
+          docker run --rm \
+            --entrypoint /usr/local/bin/vswarm-tooling \
+            vswarm/workspace:ci status all | tee /tmp/tooling-status
+          ! grep -Eq 'missing|stale' /tmp/tooling-status

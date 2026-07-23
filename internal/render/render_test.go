@@ -64,6 +64,26 @@ func TestRenderProducesIsolatedTenantConfiguration(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o755 {
 		t.Fatalf("entrypoint mode = %o, want 755", got)
 	}
+
+	tooling := filepath.Join(GeneratedDir, "image", "vswarm-tooling")
+	info, err = os.Stat(tooling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("vswarm-tooling mode = %o, want 755", got)
+	}
+	manifest := readFile(t, filepath.Join(GeneratedDir, "image", "tools.tsv"))
+	for _, want := range []string{
+		"claude|npm|@anthropic-ai/claude-code|claude|",
+		"codex|npm|@openai/codex|codex|",
+		"bun|npm|bun|bun|",
+		"go|go|go.dev|go|",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Errorf("generated tooling manifest missing %q", want)
+		}
+	}
 }
 
 func TestRenderRemovesDepartedTenantRoutingAndToken(t *testing.T) {

@@ -40,6 +40,66 @@ overlay on top as the final `image:` tag. The overlay file's directory is its
 build context. A deployment layer driving `docker build` itself follows the
 same two-step contract.
 
+### Workspace tooling
+
+The stock image uses `vswarm-tooling` for Claude Code, Codex, Bun, and Go.
+Approved releases are installed side by side under `/opt/vswarm-tooling` and
+selected through links in `/usr/local/bin`. Updating a tool verifies its
+reported version before atomically switching the link. Old release trees are
+kept while a process still refers to them; otherwise the current, previous,
+and approved releases are retained.
+
+Tenant commands:
+
+```bash
+vswarm-tooling status all
+vswarm-tooling update claude
+vswarm-tooling update codex --latest
+vswarm-tooling update all --latest
+vswarm-tooling rollback codex
+```
+
+The default paths require root, so the command re-executes through the
+workspace's passwordless `sudo` grant. Updates are serialized with `flock`.
+Npm packages use the registry's package-integrity verification and are checked
+again by executing the staged CLI. Go archives are matched against the
+filename and SHA-256 published by `go.dev` before extraction.
+
+`--latest` records only the selected version in
+`~/.config/vswarm-tooling/overrides.env`; the home directory is persistent but
+installed releases live in the container filesystem. After recreating a
+workspace, run `vswarm-tooling update all` to restore any selected newer
+releases. An operator reconciliation can safely run the same command: approved
+tools remain pinned and newer tenant selections are preserved.
+
+The root-owned manifest is `/etc/vswarm-tooling/tools.tsv`. Each non-comment
+line has six pipe-delimited fields:
+
+```text
+name|provider|package/source|primary binary|approved version|extra binaries
+```
+
+Supported providers are `npm` and `go`; extra binaries are a comma-separated
+list or `-`. For example, a deployment overlay can add the Infisical CLI by
+copying a replacement manifest and reconciling it:
+
+```text
+claude|npm|@anthropic-ai/claude-code|claude|2.1.215|-
+codex|npm|@openai/codex|codex|0.144.6|-
+bun|npm|bun|bun|1.3.14|-
+go|go|go.dev|go|1.26.5|gofmt
+infisical|npm|@infisical/cli|infisical|0.43.110|-
+```
+
+```dockerfile
+ARG VSWARM_BASE_IMAGE
+FROM ${VSWARM_BASE_IMAGE}
+COPY tools.tsv /etc/vswarm-tooling/tools.tsv
+RUN vswarm-tooling update all
+```
+
+The manifest is parsed strictly as data and is never sourced as shell.
+
 ### Dev postgres sidecar (optional, per tenant)
 
 Opt a tenant in with `services: [postgres]` in `tenants.yaml`. `services` is an
