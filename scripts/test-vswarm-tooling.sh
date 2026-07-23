@@ -108,9 +108,9 @@ case "${url}" in
     printf '[{"version":"go1.26.5","stable":true,"files":[]}]\n'
     ;;
   'https://go.dev/dl/?mode=json&include=all')
-    printf '[{"version":"go1.26.5","stable":true,"files":[{"filename":"go1.26.5.linux.%s.tar.gz","os":"linux","arch":"%s","kind":"archive","sha256":"%s"}]}]\n' "${FAKE_GO_ARCH}" "${FAKE_GO_ARCH}" "${FAKE_GO_CHECKSUM}"
+    printf '[{"version":"go1.26.5","stable":true,"files":[{"filename":"go1.26.5.linux-%s.tar.gz","os":"linux","arch":"%s","kind":"archive","sha256":"%s"}]}]\n' "${FAKE_GO_ARCH}" "${FAKE_GO_ARCH}" "${FAKE_GO_CHECKSUM}"
     ;;
-  "https://go.dev/dl/go1.26.5.linux.${FAKE_GO_ARCH}.tar.gz")
+  "https://go.dev/dl/go1.26.5.linux-${FAKE_GO_ARCH}.tar.gz")
     cp "${FAKE_GO_FIXTURE}" "${output}"
     ;;
   *)

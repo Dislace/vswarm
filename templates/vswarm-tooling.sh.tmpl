@@ -405,7 +405,7 @@ install_go_tool() {
       || fail "could not resolve checksum for Go ${version} linux/${arch}"
     filename="${metadata[0]}"
     checksum="${metadata[1]}"
-    [[ "${filename}" =~ ^go[0-9A-Za-z.-]+\.linux\.(amd64|arm64)\.tar\.gz$ ]] \
+    [[ "${filename}" =~ ^go[0-9A-Za-z.-]+\.linux-(amd64|arm64)\.tar\.gz$ ]] \
       || fail "go.dev returned an unsafe archive filename"
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] \
       || fail "go.dev returned an invalid archive checksum"
