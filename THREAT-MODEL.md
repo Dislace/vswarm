@@ -51,6 +51,15 @@ If you are running genuinely hostile tenants, re-add to each workspace service i
 `templates/Dockerfile.tmpl`. The isolation invariants above are independent of
 this choice.
 
+`vswarm-tooling` follows the same privilege posture; it is not a security
+boundary. It runs through the workspace's `sudo` grant and npm packages may run
+their own install scripts. The root-owned tool manifest and its upstream
+packages are therefore trusted inputs. Go archives receive an additional
+SHA-256 check against `go.dev`, and all staged CLIs must report the selected
+version before their public link changes. A tenant choosing `--latest` is
+exercising root authority they already have inside their own container. Remove
+`sudo` and the updater together for hostile-tenant deployments.
+
 ## The header-trust assumption (and how to remove it)
 
 v1 routes on the `Cf-Access-Authenticated-User-Email` header. This is trustworthy

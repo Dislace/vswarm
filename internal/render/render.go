@@ -140,6 +140,8 @@ func Render(c *config.Config) error {
 		{"Dockerfile.tmpl", filepath.Join(GeneratedDir, "image", "Dockerfile"), 0o644},
 		{"entrypoint.sh.tmpl", filepath.Join(GeneratedDir, "image", "entrypoint.sh"), 0o755},
 		{"prompt.sh.tmpl", filepath.Join(GeneratedDir, "image", "prompt.sh"), 0o644},
+		{"vswarm-tooling.sh.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-tooling"), 0o755},
+		{"tools.tsv.tmpl", filepath.Join(GeneratedDir, "image", "tools.tsv"), 0o644},
 	}
 	for _, f := range files {
 		if err := renderTemplate(f.tmpl, f.dst, v, f.mode); err != nil {

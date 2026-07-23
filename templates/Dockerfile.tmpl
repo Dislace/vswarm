@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       make \
       g++ \
       sudo \
+      util-linux \
       vim \
  && rm -rf /var/lib/apt/lists/*
 
@@ -21,10 +22,16 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g \
-      t3@0.0.29-nightly.20260721.864 \
-      @anthropic-ai/claude-code@2.1.206 \
-      @openai/codex@0.144.1 \
+# T3 stays image-managed because loading an update requires restarting its
+# server. Interactive CLIs are side-by-side releases managed independently.
+RUN npm install -g t3@0.0.29-nightly.20260721.864 \
+ && npm cache clean --force
+
+COPY vswarm-tooling /usr/local/bin/vswarm-tooling
+COPY tools.tsv /etc/vswarm-tooling/tools.tsv
+RUN chmod 0755 /usr/local/bin/vswarm-tooling \
+ && chmod 0644 /etc/vswarm-tooling/tools.tsv \
+ && vswarm-tooling update all \
  && npm cache clean --force
 
 RUN userdel -r node 2>/dev/null || true \

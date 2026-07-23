@@ -16,7 +16,8 @@ you.
 ## Scope
 
 In scope: identity/routing bypass, tenant isolation escape, token leakage,
-proxy misconfiguration, container hardening gaps.
+proxy misconfiguration, container hardening gaps, and tooling-updater
+verification or path-safety bypasses.
 
 Out of scope (documented limitations — see [THREAT-MODEL.md](THREAT-MODEL.md)):
 open tenant egress, shared-kernel container boundary, broad T3 token scope in v1.
