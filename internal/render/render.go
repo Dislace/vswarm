@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -22,7 +23,28 @@ const (
 	PGPort       = "5432"
 	// DBMemory caps every postgres sidecar (policy, not per-tenant tunable).
 	DBMemory = "1g"
+
+	// HomeDir is the tenant home inside the workspace, backed by the work
+	// volume. CacheDir is a second volume nested inside it.
+	HomeDir  = "/home/ai-agent"
+	CacheDir = HomeDir + "/.cache"
 )
+
+// cacheEnv redirects every toolchain cache we know about into CacheDir. The
+// split is only worth anything if the regenerable bulk actually lands on the
+// droppable volume, and chasing each tool's default path with its own mount
+// would be both fragile and endless — one mount plus these variables covers
+// npm, bun, go, pip and anything XDG-aware.
+var cacheEnv = []kv{
+	{"XDG_CACHE_HOME", CacheDir},
+	{"npm_config_cache", CacheDir + "/npm"},
+	{"BUN_INSTALL_CACHE_DIR", CacheDir + "/bun"},
+	{"GOMODCACHE", CacheDir + "/go/mod"},
+	{"GOCACHE", CacheDir + "/go/build"},
+	{"PIP_CACHE_DIR", CacheDir + "/pip"},
+}
+
+type kv struct{ K, V string }
 
 type tenantView struct {
 	Name      string
@@ -30,6 +52,9 @@ type tenantView struct {
 	Container string
 	Net       string
 	Subnet    string
+
+	WorkVolume  string
+	CacheVolume string
 
 	Postgres    bool
 	DBContainer string
@@ -55,6 +80,11 @@ type view struct {
 	ManageTunnel bool
 	EdgeExternal bool
 	AnyPostgres  bool
+	HomeDir      string
+	CacheDir     string
+	CacheEnv     []kv
+	Driver       string
+	DriverOpts   []kv
 	Tenants      []tenantView
 }
 
@@ -78,14 +108,21 @@ func buildView(c *config.Config) view {
 		T3Port:       T3Port,
 		ManageTunnel: c.ManageTunnel,
 		EdgeExternal: c.EdgeExternal,
+		HomeDir:      HomeDir,
+		CacheDir:     CacheDir,
+		CacheEnv:     cacheEnv,
+		Driver:       driverOr(c.Storage.Driver),
+		DriverOpts:   sortedOpts(c.Storage.Opts),
 	}
 	for i, t := range c.Tenants {
 		tv := tenantView{
-			Name:      t.Name,
-			Email:     t.Email,
-			Container: "vswarm-" + t.Name,
-			Net:       "vswarm-net-" + t.Name,
-			Subnet:    fmt.Sprintf("172.31.%d.0/24", 10+i),
+			Name:        t.Name,
+			Email:       t.Email,
+			Container:   "vswarm-" + t.Name,
+			Net:         "vswarm-net-" + t.Name,
+			Subnet:      fmt.Sprintf("172.31.%d.0/24", 10+i),
+			WorkVolume:  WorkVolume(t.Name),
+			CacheVolume: CacheVolume(t.Name),
 		}
 		if t.HasService("postgres") {
 			tv.Postgres = true
@@ -126,9 +163,6 @@ func Render(c *config.Config) error {
 			return err
 		}
 		v.Tenants[i].PGPassword = pw
-		if err := writePGEnv(v.Tenants[i]); err != nil {
-			return err
-		}
 	}
 
 	files := []struct {
@@ -169,11 +203,33 @@ func Render(c *config.Config) error {
 	return nil
 }
 
-// resolvePGPassword returns the tenant's persisted postgres password, minting a
-// fresh one only when no prior ~/.pg.env exists — re-renders never rotate it.
+// WorkVolume holds everything that has to survive: dotfiles, shell state,
+// checkouts and uncommitted work. It is the only tenant volume worth moving.
+func WorkVolume(name string) string { return "vswarm-work-" + name }
+
+// CacheVolume holds what any machine with a network can rebuild. Kept separate
+// so a move or a backup can drop it outright instead of copying it.
+func CacheVolume(name string) string { return "vswarm-cache-" + name }
+
+// PGPasswordPath is deployment state, not tenant data, so it stays on the host
+// where `render` can read it without a container. Keeping it out of the home
+// also means rendering no longer writes into tenant-owned storage.
+func PGPasswordPath(name string) string {
+	return filepath.Join("config", name, "pg.password")
+}
+
+// PGEnv is the connection contract delivered to the tenant as ~/.pg.env.
+func PGEnv(dbContainer, user, database, password string) string {
+	return fmt.Sprintf("PGHOST=%s\nPGPORT=%s\nPGUSER=%s\nPGPASSWORD=%s\nPGDATABASE=%s\n",
+		dbContainer, PGPort, user, password, database)
+}
+
+// resolvePGPassword returns the tenant's persisted postgres password, minting
+// and persisting a fresh one only when none exists — re-renders never rotate it.
 func resolvePGPassword(name string) (string, error) {
-	if raw, err := os.ReadFile(pgEnvPath(name)); err == nil {
-		if pw := pgEnvValue(string(raw), "PGPASSWORD"); pw != "" {
+	p := PGPasswordPath(name)
+	if raw, err := os.ReadFile(p); err == nil {
+		if pw := strings.TrimSpace(string(raw)); pw != "" {
 			return pw, nil
 		}
 	}
@@ -181,43 +237,34 @@ func resolvePGPassword(name string) (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(b), nil
-}
-
-// writePGEnv delivers the connection contract into the tenant home (mode 0600,
-// uid 1000 when running as root — the same ownership model as .infisical.env).
-func writePGEnv(t tenantView) error {
-	p := pgEnvPath(t.Name)
+	pw := hex.EncodeToString(b)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
+		return "", err
 	}
-	content := fmt.Sprintf("PGHOST=%s\nPGPORT=%s\nPGUSER=%s\nPGPASSWORD=%s\nPGDATABASE=%s\n",
-		t.DBContainer, PGPort, t.PGUser, t.PGPassword, t.PGDatabase)
-	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-		return err
+	if err := os.WriteFile(p, []byte(pw+"\n"), 0o600); err != nil {
+		return "", err
 	}
-	if err := os.Chmod(p, 0o600); err != nil {
-		return err
-	}
-	if os.Geteuid() == 0 {
-		if err := os.Chown(p, 1000, 1000); err != nil {
-			return err
-		}
-	}
-	return nil
+	return pw, os.Chmod(p, 0o600)
 }
 
-func pgEnvPath(name string) string {
-	return filepath.Join("config", name, "home", ".pg.env")
+func driverOr(d string) string {
+	if strings.TrimSpace(d) == "" {
+		return "local"
+	}
+	return d
 }
 
-func pgEnvValue(env, key string) string {
-	for _, ln := range strings.Split(env, "\n") {
-		if k, v, ok := strings.Cut(ln, "="); ok && strings.TrimSpace(k) == key {
-			return strings.TrimSpace(v)
-		}
+func sortedOpts(m map[string]string) []kv {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
-	return ""
+	sort.Strings(keys)
+	out := make([]kv, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, kv{k, m[k]})
+	}
+	return out
 }
 
 func renderTemplate(name, dst string, v view, mode os.FileMode) error {

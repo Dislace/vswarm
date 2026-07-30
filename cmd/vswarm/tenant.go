@@ -77,21 +77,18 @@ func tenantAdd(args []string) error {
 	if err := dockerx.Compose("up", "-d", "vswarm-"+name); err != nil {
 		return err
 	}
+	if err := provisionTenant(c, name, ""); err != nil {
+		return err
+	}
 	return pair(c, name)
 }
 
+// scaffoldTenant creates only the host-side directory vswarm keeps deployment
+// state in. The tenant home itself is a volume now: it seeds from the image on
+// first mount and is populated through `vswarm provision`, so there is nothing
+// here for the host to lay out in advance.
 func scaffoldTenant(name string) error {
-	base := filepath.Join("config", name, "home")
-	for _, sub := range []string{"repos", ".config/t3"} {
-		if err := os.MkdirAll(filepath.Join(base, sub), 0o755); err != nil {
-			return err
-		}
-	}
-	ssh := filepath.Join(base, ".ssh")
-	if err := os.MkdirAll(ssh, 0o700); err != nil {
-		return err
-	}
-	return os.Chmod(ssh, 0o700)
+	return os.MkdirAll(filepath.Join("config", name), 0o755)
 }
 
 func tenantRm(args []string) error {
@@ -120,9 +117,17 @@ func tenantRm(args []string) error {
 		if err := os.RemoveAll(filepath.Join("config", name)); err != nil {
 			return err
 		}
-		fmt.Printf("removed %s and purged its data\n", name)
+		// The home is a volume now, so purge has to say so explicitly —
+		// `compose rm` leaves named volumes behind by design.
+		for _, v := range []string{render.WorkVolume(name), render.CacheVolume(name), "vswarm-dbdata-" + name} {
+			if _, err := dockerx.Output("docker", "volume", "rm", "-f", v); err != nil {
+				fmt.Fprintf(os.Stderr, "warn: could not remove volume %s: %v\n", v, err)
+			}
+		}
+		fmt.Printf("removed %s and purged its data (volumes included)\n", name)
 	} else {
-		fmt.Printf("removed %s (data kept in config/%s)\n", name, name)
+		fmt.Printf("removed %s (work/cache volumes kept: %s, %s)\n",
+			name, render.WorkVolume(name), render.CacheVolume(name))
 	}
 	return nil
 }

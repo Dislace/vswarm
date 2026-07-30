@@ -156,3 +156,84 @@ func TestParseRejectsUnknownTopLevelKey(t *testing.T) {
 		t.Fatalf("Parse() error = %v", err)
 	}
 }
+
+func TestParseStorageSectionSurvivesARoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	input := `domain: code.example.com
+storage:
+  driver: local
+  opt.type: nfs
+  opt.o: "addr=10.0.0.9,rw,nfsvers=4"
+  opt.device: ":/export/vswarm"
+tenants:
+  - email: alice@example.com
+    name: alice
+`
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if got.Storage.Driver != "local" {
+		t.Errorf("driver = %q, want local", got.Storage.Driver)
+	}
+	for k, want := range map[string]string{
+		"type":   "nfs",
+		"o":      "addr=10.0.0.9,rw,nfsvers=4",
+		"device": ":/export/vswarm",
+	} {
+		if got.Storage.Opts[k] != want {
+			t.Errorf("opt.%s = %q, want %q", k, got.Storage.Opts[k], want)
+		}
+	}
+
+	got.Path = path
+	if err := got.Save(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Parse(path)
+	if err != nil {
+		t.Fatalf("re-parse after Save() error = %v", err)
+	}
+	if len(again.Storage.Opts) != len(got.Storage.Opts) {
+		t.Fatalf("driver opts lost on round trip: %#v", again.Storage.Opts)
+	}
+	for k, want := range got.Storage.Opts {
+		if again.Storage.Opts[k] != want {
+			t.Errorf("after round trip opt.%s = %q, want %q", k, again.Storage.Opts[k], want)
+		}
+	}
+}
+
+func TestParseRejectsUnknownStorageKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	input := `domain: code.example.com
+storage:
+  drivr: local
+tenants:
+  - email: alice@example.com
+    name: alice
+`
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(path); err == nil {
+		t.Fatal("a typo'd storage key must not be silently ignored — it would strand tenant data on the wrong backend")
+	}
+}
+
+func TestDefaultStorageDriverIsLocal(t *testing.T) {
+	c := Default()
+	if c.Storage.Driver != "local" {
+		t.Errorf("default driver = %q, want local", c.Storage.Driver)
+	}
+	empty := &Config{Domain: "x.example.com"}
+	if err := empty.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if empty.Storage.Driver != "local" {
+		t.Errorf("Validate() should normalise an empty driver to local, got %q", empty.Storage.Driver)
+	}
+}

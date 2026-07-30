@@ -28,6 +28,20 @@ resources:
   memory: 6g
   pids: 4096
 
+# Volume driver for the durable per-tenant volumes (work + postgres data).
+# The default `local` keeps them on this host. Naming a driver and its options
+# is the whole mechanism for putting tenant state somewhere else — nothing else
+# in this file changes. Cache volumes ignore this and stay local on purpose:
+# they are rebuildable from the network, so shipping them over one is slower
+# than refetching. Options are flat `opt.<key>` pairs, passed to the driver
+# verbatim.
+#
+# storage:
+#   driver: local
+#   opt.type: nfs
+#   opt.o: "addr=10.0.0.9,rw,nfsvers=4"
+#   opt.device: ":/export/vswarm"
+
 # Bearer-token lifetime minted for each tenant's T3 session.
 # `vswarm pair` re-mints before expiry.
 token_ttl: 30d

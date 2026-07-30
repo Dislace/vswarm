@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p "${T3CODE_HOME}" /home/ai-agent/repos
+# Both volumes seed from the image on first mount, but a volume carried over
+# from an older image may predate those directories. `set -e` is the point: if
+# the cache volume is not writable as uid 1000 the container must fail loudly
+# rather than run with every toolchain cache silently erroring.
+mkdir -p "${T3CODE_HOME}" /home/ai-agent/repos \
+  /home/ai-agent/.cache/npm \
+  /home/ai-agent/.cache/bun \
+  /home/ai-agent/.cache/go/mod \
+  /home/ai-agent/.cache/go/build \
+  /home/ai-agent/.cache/pip
 
 exec t3 serve \
   --mode web \
