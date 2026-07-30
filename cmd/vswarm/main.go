@@ -46,6 +46,10 @@ func main() {
 		err = cmdTenant(os.Args[2:])
 	case "pair":
 		err = cmdPair(os.Args[2:])
+	case "provision":
+		err = cmdProvision(os.Args[2:])
+	case "migrate":
+		err = cmdMigrate(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -77,6 +81,12 @@ COMMANDS
   tenant rm <name>            remove a tenant                  (--purge to wipe data)
   tenant ls                   list tenants + container status
   pair <name>              (re)mint a tenant's T3 token and inject it into angie
+  provision <name>         deliver credentials into a tenant's work volume
+                           (--from <dir> stages a tree the deployment layer built,
+                            --remove <rel-path> revokes one, repeatable)
+  migrate <name>           copy a legacy config/<name>/home bind mount into the
+                           work volume, dropping rebuildable caches
+                           (--keep-derived copies them too)
   status                   docker compose ps
   logs [tenant]            follow logs (proxy by default)
   doctor                   verify isolation + config invariants
@@ -140,6 +150,9 @@ func cmdUp() error {
 		return err
 	}
 	for _, t := range c.Tenants {
+		if err := provisionTenant(c, t.Name, ""); err != nil {
+			return fmt.Errorf("provision %s: %w", t.Name, err)
+		}
 		if err := pair(c, t.Name); err != nil {
 			return fmt.Errorf("pair %s: %w", t.Name, err)
 		}

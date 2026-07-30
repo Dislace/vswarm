@@ -62,8 +62,12 @@ services:
     environment:
       - T3CODE_HOME=/home/ai-agent/.config/t3
       - VSWARM_USER={{.Name}}
+{{- range $.CacheEnv}}
+      - {{.K}}={{.V}}
+{{- end}}
     volumes:
-      - ./config/{{.Name}}/home:/home/ai-agent
+      - {{.WorkVolume}}:{{$.HomeDir}}
+      - {{.CacheVolume}}:{{$.CacheDir}}
     tmpfs:
       - /run
     ulimits:
@@ -108,11 +112,34 @@ services:
       retries: 10
       start_period: 30s
 {{- end}}{{end}}
-{{- if .AnyPostgres}}
 
+# Tenant state is split by durability class. Work and db data carry the
+# configured driver so a deployment can put them somewhere other than this
+# host; cache is pinned to `local` on purpose — it is rebuildable from the
+# network, and shipping it over one would be slower than refetching it.
 volumes:
+{{- range .Tenants}}
+  {{.WorkVolume}}:
+    name: {{.WorkVolume}}
+    driver: {{$.Driver}}
+{{- if $.DriverOpts}}
+    driver_opts:
+{{- range $.DriverOpts}}
+      {{.K}}: "{{.V}}"
+{{- end}}
+{{- end}}
+  {{.CacheVolume}}:
+    name: {{.CacheVolume}}
+    driver: local
+{{- end}}
 {{- range .Tenants}}{{if .Postgres}}
   {{.DBVolume}}:
     name: {{.DBVolume}}
-{{- end}}{{end}}
+    driver: {{$.Driver}}
+{{- if $.DriverOpts}}
+    driver_opts:
+{{- range $.DriverOpts}}
+      {{.K}}: "{{.V}}"
 {{- end}}
+{{- end}}
+{{- end}}{{end}}

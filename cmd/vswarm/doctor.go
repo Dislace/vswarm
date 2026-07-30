@@ -44,25 +44,40 @@ func cmdDoctor() error {
 	}
 
 	for _, t := range c.Tenants {
-		p := filepath.Join("config", t.Name, "home", ".ssh")
-		mode, merr := dirMode(p)
-		check("ssh perms 700 for "+t.Name, merr == nil && mode == 0o700, modeStr(mode, merr))
+		for _, vol := range []string{render.WorkVolume(t.Name), render.CacheVolume(t.Name)} {
+			_, verr := dockerx.Output("docker", "volume", "inspect", vol)
+			check("volume present: "+vol, verr == nil, errStr(verr))
+		}
+	}
+
+	// The split is only real if the two paths are on different filesystems.
+	// Comparing device numbers proves the cache mount actually took, which a
+	// glance at the compose file cannot: a typo'd mount path silently lands
+	// the cache back inside the work volume and nothing else would notice.
+	for _, t := range c.Tenants {
+		same, detail := sameDevice("vswarm-"+t.Name, render.HomeDir, render.CacheDir)
+		check("cache is a separate volume for "+t.Name, !same, detail)
+	}
+
+	for _, t := range c.Tenants {
+		mode, merr := containerMode("vswarm-"+t.Name, render.HomeDir+"/.ssh")
+		check("ssh perms 700 for "+t.Name, merr == nil && mode == "700", pathDetail(mode, merr))
 	}
 
 	for _, t := range c.Tenants {
 		if t.Admin {
 			continue
 		}
-		_, err := os.Stat(adminKeyPath(t.Name))
-		check("no admin key in non-admin home: "+t.Name, os.IsNotExist(err), adminKeyDetail(err))
+		_, err := containerMode("vswarm-"+t.Name, adminKeyPath())
+		check("no admin key in non-admin home: "+t.Name, err != nil, adminKeyDetail(err))
 	}
 
 	for _, t := range c.Tenants {
 		if !t.Admin {
 			continue
 		}
-		mode, merr := dirMode(adminKeyPath(t.Name))
-		check("admin key 0600 for "+t.Name, merr == nil && mode == 0o600, modeStr(mode, merr))
+		mode, merr := containerMode("vswarm-"+t.Name, adminKeyPath())
+		check("admin key 0600 for "+t.Name, merr == nil && mode == "600", pathDetail(mode, merr))
 	}
 
 	for _, t := range c.Tenants {
@@ -169,26 +184,49 @@ func tokenFromLine(s string) string {
 	return fields[3]
 }
 
-func adminKeyPath(name string) string {
-	return filepath.Join("config", name, "home", ".ssh", "vswarm-admin")
+func adminKeyPath() string {
+	return render.HomeDir + "/.ssh/vswarm-admin"
 }
 
 func adminKeyDetail(err error) string {
 	if err == nil {
 		return "present"
 	}
-	if os.IsNotExist(err) {
-		return ""
-	}
-	return err.Error()
+	return ""
 }
 
-func dirMode(p string) (os.FileMode, error) {
-	fi, err := os.Stat(p)
+// containerMode reads a permission bitmask from inside the workspace. The home
+// is a named volume now, so the host has no path to stat — and asking the
+// container is stricter anyway: it checks what the tenant actually sees rather
+// than what the deployment layer believes it wrote.
+func containerMode(container, path string) (string, error) {
+	out, err := dockerx.Exec(container, "stat", "-c", "%a", path)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
-	return fi.Mode().Perm(), nil
+	return strings.TrimSpace(out), nil
+}
+
+func sameDevice(container, a, b string) (bool, string) {
+	out, err := dockerx.Exec(container, "stat", "-c", "%d", a, b)
+	if err != nil {
+		return false, errStr(err)
+	}
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return false, "unexpected stat output: " + strings.TrimSpace(out)
+	}
+	if fields[0] == fields[1] {
+		return true, "both on device " + fields[0]
+	}
+	return false, ""
+}
+
+func pathDetail(mode string, err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return mode
 }
 
 func detailSuffix(d string) string {
@@ -203,11 +241,4 @@ func errStr(e error) string {
 		return ""
 	}
 	return e.Error()
-}
-
-func modeStr(m os.FileMode, err error) string {
-	if err != nil {
-		return err.Error()
-	}
-	return m.String()
 }

@@ -39,6 +39,17 @@ RUN userdel -r node 2>/dev/null || true \
  && echo 'ai-agent ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ai-agent \
  && chmod 0440 /etc/sudoers.d/ai-agent
 
+# Docker seeds an empty named volume from whatever the image has at the mount
+# point, ownership included. Without these the cache volume would mount as
+# root-owned and every tool writing a cache would fail as uid 1000.
+RUN install -d -o ai-agent -g ai-agent -m 0755 \
+      /home/ai-agent/.cache \
+      /home/ai-agent/.cache/npm \
+      /home/ai-agent/.cache/bun \
+      /home/ai-agent/.cache/go/mod \
+      /home/ai-agent/.cache/go/build \
+      /home/ai-agent/.cache/pip
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

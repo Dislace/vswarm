@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -30,6 +31,15 @@ type Resources struct {
 	Pids   int
 }
 
+// Storage selects the volume driver every per-tenant volume is created with.
+// The default `local` driver keeps the data on the host; naming a driver and
+// its options here is what lets a deployment put tenant state somewhere else
+// (NFS, CIFS, a CSI plugin) without any other part of the model changing.
+type Storage struct {
+	Driver string
+	Opts   map[string]string
+}
+
 type Config struct {
 	Domain       string
 	Image        string
@@ -37,6 +47,7 @@ type Config struct {
 	DBImage      string
 	Team         string
 	Resources    Resources
+	Storage      Storage
 	TokenTTL     string
 	ManageTunnel bool
 	EdgeExternal bool
@@ -56,6 +67,7 @@ func Default() *Config {
 		Image:        "vswarm/workspace:latest",
 		DBImage:      "timescale/timescaledb:2.28.2-pg17",
 		Resources:    Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
+		Storage:      Storage{Driver: "local", Opts: map[string]string{}},
 		TokenTTL:     "30d",
 		ManageTunnel: true,
 	}
@@ -112,6 +124,8 @@ func Parse(path string) (*Config, error) {
 				section = ""
 			case "resources":
 				section = "resources"
+			case "storage":
+				section = "storage"
 			case "tenants":
 				section = "tenants"
 			default:
@@ -132,6 +146,18 @@ func Parse(path string) (*Config, error) {
 				if p, err := strconv.Atoi(unquote(val)); err == nil {
 					c.Resources.Pids = p
 				}
+			}
+		case "storage":
+			key, val := splitKV(trim)
+			switch {
+			case key == "driver":
+				if val != "" {
+					c.Storage.Driver = unquote(val)
+				}
+			case strings.HasPrefix(key, "opt."):
+				c.Storage.Opts[strings.TrimPrefix(key, "opt.")] = unquote(val)
+			default:
+				return nil, fmt.Errorf("%s:%d: unknown storage key %q", path, n+1, key)
 			}
 		case "tenants":
 			if strings.HasPrefix(trim, "-") {
@@ -176,6 +202,9 @@ func applyTenant(t *Tenant, k, v string) error {
 func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Domain) == "" {
 		return fmt.Errorf("domain is required")
+	}
+	if strings.TrimSpace(c.Storage.Driver) == "" {
+		c.Storage.Driver = "local"
 	}
 	seenName := map[string]bool{}
 	seenEmail := map[string]bool{}
@@ -244,6 +273,13 @@ func (c *Config) Save() error {
 	fmt.Fprintf(&b, "  cpus: \"%s\"\n", c.Resources.CPUs)
 	fmt.Fprintf(&b, "  memory: %s\n", c.Resources.Memory)
 	fmt.Fprintf(&b, "  pids: %d\n", c.Resources.Pids)
+	if c.Storage.Driver != "" && c.Storage.Driver != "local" || len(c.Storage.Opts) > 0 {
+		b.WriteString("storage:\n")
+		fmt.Fprintf(&b, "  driver: %s\n", c.Storage.Driver)
+		for _, k := range sortedKeys(c.Storage.Opts) {
+			fmt.Fprintf(&b, "  opt.%s: %q\n", k, c.Storage.Opts[k])
+		}
+	}
 	fmt.Fprintf(&b, "token_ttl: %s\n", c.TokenTTL)
 	fmt.Fprintf(&b, "manage_tunnel: %t\n", c.ManageTunnel)
 	fmt.Fprintf(&b, "edge_external: %t\n", c.EdgeExternal)
@@ -259,6 +295,15 @@ func (c *Config) Save() error {
 		}
 	}
 	return os.WriteFile(c.Path, []byte(b.String()), 0o644)
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func stripComment(s string) string {
