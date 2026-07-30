@@ -48,3 +48,40 @@ func TestMigrateScriptFailsOnSourceTarError(t *testing.T) {
 		t.Errorf("migrate script is no longer a tar pipe, got %q", script)
 	}
 }
+
+// The workspace image's ENTRYPOINT execs the t3 server and ignores "$@", so a
+// `docker run <image> sh -c ...` starts a workspace instead of running the
+// script and blocks forever. Every volume helper must override the entrypoint,
+// and the override has to land before the image name to take effect.
+func TestVolumeRunArgsOverridesTheImageEntrypoint(t *testing.T) {
+	args := volumeRunArgs("vswarm/workspace:latest", "bash",
+		[]string{"-v", "/legacy:/src:ro", "-v", "vswarm-work-x:/dst"},
+		[]string{"-c", "echo hi"})
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--entrypoint bash") {
+		t.Fatalf("missing entrypoint override: %q", joined)
+	}
+
+	ep := indexOf(args, "--entrypoint")
+	img := indexOf(args, "vswarm/workspace:latest")
+	script := indexOf(args, "-c")
+	if ep == -1 || img == -1 || script == -1 {
+		t.Fatalf("unexpected argv: %q", joined)
+	}
+	if ep > img {
+		t.Errorf("--entrypoint must precede the image or docker ignores it: %q", joined)
+	}
+	if script < img {
+		t.Errorf("command args must follow the image: %q", joined)
+	}
+}
+
+func indexOf(hay []string, needle string) int {
+	for i, s := range hay {
+		if s == needle {
+			return i
+		}
+	}
+	return -1
+}
