@@ -83,10 +83,6 @@ func tenantAdd(args []string) error {
 	return pair(c, name)
 }
 
-// scaffoldTenant creates only the host-side directory vswarm keeps deployment
-// state in. The tenant home itself is a volume now: it seeds from the image on
-// first mount and is populated through `vswarm provision`, so there is nothing
-// here for the host to lay out in advance.
 func scaffoldTenant(name string) error {
 	return os.MkdirAll(filepath.Join("config", name), 0o755)
 }
@@ -117,8 +113,7 @@ func tenantRm(args []string) error {
 		if err := os.RemoveAll(filepath.Join("config", name)); err != nil {
 			return err
 		}
-		// The home is a volume now, so purge has to say so explicitly —
-		// `compose rm` leaves named volumes behind by design.
+
 		for _, v := range []string{render.WorkVolume(name), render.CacheVolume(name), "vswarm-dbdata-" + name} {
 			if _, err := dockerx.Output("docker", "volume", "rm", "-f", v); err != nil {
 				fmt.Fprintf(os.Stderr, "warn: could not remove volume %s: %v\n", v, err)

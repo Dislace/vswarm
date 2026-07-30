@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Import a machine's Claude Code project memory into a VibeSwarm workspace.
-#
-# Claude Code stores per-project memory at ~/.claude/projects/<encoded-cwd>/memory,
-# where <encoded-cwd> is the project's absolute path with "/" turned into "-".
-# That path is baked into the directory name, so memory copied verbatim to a
-# machine with a different home directory never loads. This remaps the home-dir
-# prefix of every project so the memory attaches under the workspace's home,
-# then copies it in. Repo paths *below* the home dir must match on both sides
-# (mirror your checkout layout in the workspace) for a given project to resolve.
-
 usage() {
   cat <<'EOF'
 import-claude-memory.sh — move Claude Code memory into a VibeSwarm workspace
@@ -36,10 +26,8 @@ OPTIONS
   -h, --help           this help
 
 EXAMPLES
-  # Your laptop, into your running container (needs docker access to the host):
   scripts/import-claude-memory.sh --container vswarm-alex
 
-  # Operator: seed a tenant's home volume before `vswarm up`:
   scripts/import-claude-memory.sh --dest config/alex/home --match '*/myorg/*'
 EOF
 }

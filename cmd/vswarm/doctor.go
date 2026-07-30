@@ -121,10 +121,6 @@ func tenantReachesProxy(container string) bool {
 	return err == nil
 }
 
-// tenantReachesDB attempts a real TCP connect to a db container's postgres port
-// from inside another tenant's workspace. curl-to-postgres always errors on the
-// HTTP handshake even when connected, so it cannot prove reachability; python3
-// (present in the workspace image) opens the socket and exits 0 iff it connects.
 func tenantReachesDB(container, dbContainer string) bool {
 	script := fmt.Sprintf(
 		"import socket; s=socket.socket(); s.settimeout(3); s.connect((%q, 5432)); s.close()",
@@ -133,7 +129,6 @@ func tenantReachesDB(container, dbContainer string) bool {
 	return err == nil
 }
 
-// dbNetworks returns the docker networks a db container is attached to.
 func dbNetworks(dbContainer string) ([]string, error) {
 	out, err := dockerx.Output("docker", "inspect", "-f",
 		"{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}", dbContainer)
@@ -191,10 +186,6 @@ func adminKeyDetail(err error) string {
 	return ""
 }
 
-// containerMode reads a permission bitmask from inside the workspace. The home
-// is a named volume now, so the host has no path to stat — and asking the
-// container is stricter anyway: it checks what the tenant actually sees rather
-// than what the deployment layer believes it wrote.
 func containerMode(container, path string) (string, error) {
 	out, err := dockerx.Exec(container, "stat", "-c", "%a", path)
 	if err != nil {

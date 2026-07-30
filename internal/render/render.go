@@ -21,20 +21,13 @@ const (
 	EdgeSubnet   = "172.31.0.0/24"
 	ProxyIP      = "172.31.0.2"
 	PGPort       = "5432"
-	// DBMemory caps every postgres sidecar (policy, not per-tenant tunable).
+
 	DBMemory = "1g"
 
-	// HomeDir is the tenant home inside the workspace, backed by the work
-	// volume. CacheDir is a second volume nested inside it.
 	HomeDir  = "/home/ai-agent"
 	CacheDir = HomeDir + "/.cache"
 )
 
-// cacheEnv redirects every toolchain cache we know about into CacheDir. The
-// split is only worth anything if the regenerable bulk actually lands on the
-// droppable volume, and chasing each tool's default path with its own mount
-// would be both fragile and endless — one mount plus these variables covers
-// npm, bun, go, pip and anything XDG-aware.
 var cacheEnv = []kv{
 	{"XDG_CACHE_HOME", CacheDir},
 	{"npm_config_cache", CacheDir + "/npm"},
@@ -204,29 +197,19 @@ func Render(c *config.Config) error {
 	return nil
 }
 
-// WorkVolume holds everything that has to survive: dotfiles, shell state,
-// checkouts and uncommitted work. It is the only tenant volume worth moving.
 func WorkVolume(name string) string { return "vswarm-work-" + name }
 
-// CacheVolume holds what any machine with a network can rebuild. Kept separate
-// so a move or a backup can drop it outright instead of copying it.
 func CacheVolume(name string) string { return "vswarm-cache-" + name }
 
-// PGPasswordPath is deployment state, not tenant data, so it stays on the host
-// where `render` can read it without a container. Keeping it out of the home
-// also means rendering no longer writes into tenant-owned storage.
 func PGPasswordPath(name string) string {
 	return filepath.Join("config", name, "pg.password")
 }
 
-// PGEnv is the connection contract delivered to the tenant as ~/.pg.env.
 func PGEnv(dbContainer, user, database, password string) string {
 	return fmt.Sprintf("PGHOST=%s\nPGPORT=%s\nPGUSER=%s\nPGPASSWORD=%s\nPGDATABASE=%s\n",
 		dbContainer, PGPort, user, password, database)
 }
 
-// resolvePGPassword returns the tenant's persisted postgres password, minting
-// and persisting a fresh one only when none exists — re-renders never rotate it.
 func resolvePGPassword(name string) (string, error) {
 	p := PGPasswordPath(name)
 	if raw, err := os.ReadFile(p); err == nil {

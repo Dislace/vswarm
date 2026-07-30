@@ -1,4 +1,3 @@
-// Opt-in Cloudflare Access JWT verification — see THREAT-MODEL.md for setup.
 
 var TEAM_DOMAIN = 'https://YOUR-TEAM.cloudflareaccess.com';
 var AUD = 'YOUR-ACCESS-APPLICATION-AUD-TAG';

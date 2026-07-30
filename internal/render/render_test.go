@@ -174,8 +174,7 @@ func TestRenderAppliesStorageDriverToDurableVolumesOnly(t *testing.T) {
 	if db := section(compose, "  vswarm-dbdata-alice:"); !strings.Contains(db, `type: "nfs"`) {
 		t.Errorf("db volume should carry the driver opts too, got:\n%s", db)
 	}
-	// Caches are rebuildable from the network; shipping them over one would be
-	// slower than refetching, so they must stay on the default local driver.
+
 	if cache := section(compose, "  vswarm-cache-alice:"); strings.Contains(cache, "driver_opts") {
 		t.Errorf("cache volume must not inherit the remote driver, got:\n%s", cache)
 	}
@@ -214,14 +213,11 @@ func TestResolvePGPasswordPersistsOutsideTheTenantHome(t *testing.T) {
 		t.Error("compose does not carry the persisted password")
 	}
 
-	// Rendering must no longer reach into tenant-owned storage.
 	if _, err := os.Stat(filepath.Join("config", "alice", "home")); !os.IsNotExist(err) {
 		t.Errorf("render wrote into the tenant home: %v", err)
 	}
 }
 
-// section returns the block of a YAML mapping starting at header, up to the
-// next line at the same indent.
 func section(doc, header string) string {
 	i := strings.Index(doc, header)
 	if i < 0 {
@@ -271,10 +267,6 @@ func assertFileEquals(t *testing.T, path, want string) {
 	}
 }
 
-// The image templates spell the cache paths out literally: CI runs shellcheck
-// and hadolint against the raw templates, and Go template actions inside them
-// break both linters. This pins the literals to the constant so the two cannot
-// drift into a cache volume that mounts over directories nobody created.
 func TestImageTemplatesAgreeWithTheCacheConstant(t *testing.T) {
 	chdirTemp(t)
 	c := &config.Config{

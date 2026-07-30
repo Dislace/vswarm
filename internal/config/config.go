@@ -14,10 +14,7 @@ type Tenant struct {
 	Name     string
 	Services []string
 	Admin    bool
-	// Repos the workspace should hold. Declaring them is what turns a tenant
-	// from bytes you have to copy into something a new host can re-materialize:
-	// everything committed is already on the remote, so only the diff is
-	// precious. Entries are either full URLs or `owner/name` against RepoBase.
+
 	Repos []string
 }
 
@@ -36,10 +33,6 @@ type Resources struct {
 	Pids   int
 }
 
-// Storage selects the volume driver every per-tenant volume is created with.
-// The default `local` driver keeps the data on the host; naming a driver and
-// its options here is what lets a deployment put tenant state somewhere else
-// (NFS, CIFS, a CSI plugin) without any other part of the model changing.
 type Storage struct {
 	Driver string
 	Opts   map[string]string
@@ -64,8 +57,6 @@ type Config struct {
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
-// knownServices bounds the tenant `services:` list; unknown names are rejected
-// at parse time so a typo can never silently drop a sidecar.
 var knownServices = map[string]bool{"postgres": true}
 
 func Default() *Config {
@@ -213,9 +204,6 @@ func applyTenant(t *Tenant, k, v string) error {
 	return nil
 }
 
-// RepoURL expands a manifest entry. Anything that already looks like a URL or
-// an scp-style remote is passed through untouched; a bare owner/name is
-// resolved against RepoBase.
 func (c *Config) RepoURL(entry string) string {
 	if strings.Contains(entry, "://") || strings.Contains(entry, "@") {
 		return entry
@@ -223,8 +211,6 @@ func (c *Config) RepoURL(entry string) string {
 	return c.RepoBase + entry
 }
 
-// RepoDir is the directory a manifest entry is cloned into, relative to the
-// tenant's repos root.
 func RepoDir(entry string) string {
 	s := strings.TrimSuffix(entry, ".git")
 	if i := strings.LastIndex(s, "/"); i >= 0 {
@@ -370,9 +356,6 @@ func parseBool(s string) bool {
 	return strings.EqualFold(strings.TrimSpace(unquote(s)), "true")
 }
 
-// parseList reads an inline flow list (`[a, b]`) — the only list form the
-// tenant block supports, since a block list's `-` items collide with the
-// tenant delimiter.
 func parseList(s string) []string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "[")

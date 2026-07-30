@@ -260,8 +260,7 @@ tenants:
 	if got := c.RepoURL("Acme/api"); got != "git@git.example.com:Acme/api" {
 		t.Errorf("RepoURL(slug) = %q", got)
 	}
-	// Anything already addressable must survive untouched, or a full URL in the
-	// manifest would be silently prefixed into nonsense.
+
 	for _, verbatim := range []string{
 		"https://github.com/other/thing.git",
 		"git@github.com:other/thing.git",
