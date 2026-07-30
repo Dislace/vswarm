@@ -91,10 +91,28 @@ never right. Delete the file to force a new password.
 Earlier versions bind-mounted `./config/<name>/home`. To convert:
 
 ```bash
-docker compose -f generated/docker-compose.yml stop vswarm-<name>
 vswarm up                  # creates the volumes with the configured driver
+docker compose -f generated/docker-compose.yml stop vswarm-<name>
 vswarm migrate <name>      # copies the home in, dropping rebuildable caches
+docker compose -f generated/docker-compose.yml start vswarm-<name>
 vswarm doctor
+```
+
+The stop comes **after** `up`, not before: `up` creates the volumes but also
+starts the container, and `migrate` refuses to run against a running one. The
+workspace is on an empty home between `up` and `migrate`, so keep the window
+short and expect the tenant to be logged out of it.
+
+To convert one tenant at a time instead of the whole roster, render first and
+recreate only that service — the others keep running on their existing
+containers:
+
+```bash
+vswarm render
+docker compose -f generated/docker-compose.yml up -d vswarm-<name>
+docker compose -f generated/docker-compose.yml stop vswarm-<name>
+vswarm migrate <name>
+docker compose -f generated/docker-compose.yml start vswarm-<name>
 ```
 
 `migrate` refuses to run against a running container, lifts the postgres
