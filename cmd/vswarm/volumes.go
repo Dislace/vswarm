@@ -139,14 +139,36 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 	return nil
 }
 
+// volumeRun runs one command against tenant volumes in the workspace image.
+//
+// --entrypoint is not optional. The image's ENTRYPOINT execs the t3 server and
+// never looks at "$@", so a bare `docker run <image> sh -c ...` ignores the
+// script, starts a workspace as root and blocks until something kills it. Every
+// volume helper here has to override it or it silently does nothing at all.
+func volumeRun(image, entrypoint string, mounts, args []string) error {
+	return dockerx.Run("docker", volumeRunArgs(image, entrypoint, mounts, args)...)
+}
+
+// volumeRunArgs is split out so the --entrypoint override is covered by a test
+// rather than by whoever next edits these call sites.
+func volumeRunArgs(image, entrypoint string, mounts, args []string) []string {
+	full := []string{"run", "--rm", "-u", "0", "--network", "none", "--entrypoint", entrypoint}
+	full = append(full, mounts...)
+	full = append(full, image)
+	return append(full, args...)
+}
+
 // revoke deletes paths from the work volume. Idempotent: a path that is
 // already gone is the desired state, not an error.
+//
+// Passed as argv rather than through a shell so the paths never get a chance to
+// be reinterpreted as script on their way into an `rm -rf` running as root.
 func revoke(image, volume string, paths []string) error {
-	args := []string{"run", "--rm", "-u", "0", "--network", "none", "-v", volume + ":/dst", image, "rm", "-rf"}
+	args := []string{"-rf"}
 	for _, p := range paths {
 		args = append(args, "/dst/"+p)
 	}
-	return dockerx.Run("docker", args...)
+	return volumeRun(image, "rm", []string{"-v", volume + ":/dst"}, args)
 }
 
 // checkRelPath refuses anything that could escape the volume. These paths are
@@ -190,21 +212,17 @@ if [ -d /dst/.ssh ]; then
 fi
 find /dst -maxdepth 1 -type f -name '*.env' -exec chmod 0600 {} +
 `
-	return dockerx.Run("docker", "run", "--rm", "-u", "0",
-		"--network", "none",
-		"-v", stage+":/src:ro",
-		"-v", volume+":/dst",
-		image, "sh", "-c", script)
+	return volumeRun(image, "sh",
+		[]string{"-v", stage + ":/src:ro", "-v", volume + ":/dst"},
+		[]string{"-c", script})
 }
 
 // copyTree stages a host directory with a container so ownership in the
 // staging area never depends on who ran vswarm.
 func copyTree(image, src, dst string) error {
-	return dockerx.Run("docker", "run", "--rm", "-u", "0",
-		"--network", "none",
-		"-v", src+":/src:ro",
-		"-v", dst+":/dst",
-		image, "sh", "-c", "set -eu; cp -a /src/. /dst/")
+	return volumeRun(image, "sh",
+		[]string{"-v", src + ":/src:ro", "-v", dst + ":/dst"},
+		[]string{"-c", "set -eu; cp -a /src/. /dst/"})
 }
 
 func cmdMigrate(args []string) error {
@@ -258,11 +276,9 @@ func cmdMigrate(args []string) error {
 			excludes = append(excludes, "--exclude="+p)
 		}
 	}
-	if err := dockerx.Run("docker", "run", "--rm", "-u", "0",
-		"--network", "none",
-		"-v", abs+":/src:ro",
-		"-v", vol+":/dst",
-		c.Image, "bash", "-c", migrateScript(excludes)); err != nil {
+	if err := volumeRun(c.Image, "bash",
+		[]string{"-v", abs + ":/src:ro", "-v", vol + ":/dst"},
+		[]string{"-c", migrateScript(excludes)}); err != nil {
 		return fmt.Errorf("migrate %s: %w", name, err)
 	}
 
