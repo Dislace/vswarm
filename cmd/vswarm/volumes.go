@@ -201,8 +201,30 @@ func checkRelPath(p string) error {
 // Modes are applied here rather than trusted from the staging tree so the
 // delivered contract is the same whatever the deployment layer handed us.
 func deliver(image, stage, volume string) error {
-	const script = `set -eu
+	return volumeRun(image, "bash",
+		[]string{"-v", stage + ":/src:ro", "-v", volume + ":/dst"},
+		[]string{"-c", deliverScript})
+}
+
+// deliverScript is bash, not sh, on two counts that both failed silently on the
+// first live run.
+//
+// `read -d` with an empty delimiter is a bashism. Under dash the read errors,
+// and because it is the
+// while loop's condition `set -e` does not fire — the loop simply never
+// iterates, so nothing delivered ever got chowned while the chmods after it
+// still ran. Ownership was wrong and the modes looked right.
+//
+// `cp -a /src/. /dst/` also carries the staging directory's own mode and owner
+// onto the volume root. The deployment layer stages as root 0700, so the tenant
+// home came out root-owned and unenterable by uid 1000: the tenant could not
+// read a single thing that had just been delivered to them. /dst is therefore
+// reset to the image's own contract explicitly rather than inherited from
+// whatever staged the tree.
+const deliverScript = `set -euo pipefail
 cp -a /src/. /dst/
+chown 1000:1000 /dst
+chmod 0755 /dst
 find /src -mindepth 1 -maxdepth 1 -printf '%P\0' | while IFS= read -r -d '' e; do
   chown -R 1000:1000 "/dst/$e"
 done
@@ -212,10 +234,6 @@ if [ -d /dst/.ssh ]; then
 fi
 find /dst -maxdepth 1 -type f -name '*.env' -exec chmod 0600 {} +
 `
-	return volumeRun(image, "sh",
-		[]string{"-v", stage + ":/src:ro", "-v", volume + ":/dst"},
-		[]string{"-c", script})
-}
 
 // copyTree stages a host directory with a container so ownership in the
 // staging area never depends on who ran vswarm.

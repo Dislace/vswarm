@@ -85,3 +85,20 @@ func indexOf(hay []string, needle string) int {
 	}
 	return -1
 }
+
+// deliver silently did nothing useful under sh. `read -d` is a bashism whose
+// failure is swallowed because it is the while loop's condition, so nothing
+// delivered was ever chowned; and `cp -a /src/. /dst/` carries the staging
+// directory's root-owned 0700 onto the tenant home. Together they left the
+// tenant unable to read, or even enter, the home just provisioned for them.
+func TestDeliverScriptResetsVolumeRootAndRequiresBash(t *testing.T) {
+	if !strings.Contains(deliverScript, "chown 1000:1000 /dst\n") {
+		t.Error("must reset the volume root owner; cp -a inherits the staging dir's")
+	}
+	if !strings.Contains(deliverScript, "chmod 0755 /dst") {
+		t.Error("must reset the volume root mode; cp -a inherits the staging dir's")
+	}
+	if strings.Contains(deliverScript, "read -r -d ''") && !strings.Contains(deliverScript, "set -euo pipefail") {
+		t.Error("script relies on a bashism, so it must be run under bash")
+	}
+}
