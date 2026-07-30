@@ -42,6 +42,10 @@ resources:
 #   opt.o: "addr=10.0.0.9,rw,nfsvers=4"
 #   opt.device: ":/export/vswarm"
 
+# Base for bare `owner/name` entries in a tenant's `repos:` list. Entries that
+# are already URLs or scp-style remotes are used verbatim.
+# repo_base: "git@github.com:"
+
 # Bearer-token lifetime minted for each tenant's T3 session.
 # `vswarm pair` re-mints before expiry.
 token_ttl: 30d
@@ -58,10 +62,14 @@ token_ttl: 30d
 # touches host ssh config or authorized_keys — the deployment layer mints the
 # key at ~/.ssh/vswarm-admin; vswarm only carries the flag and enforces
 # doctor invariants around the key file (see docs/DEPLOYMENT.md).
+# Optional `repos:` declares what the workspace should hold, so it can be
+# rebuilt rather than copied. Delivered to ~/.config/vswarm/repos; the tenant
+# runs `vswarm-repos sync` to clone whatever is missing.
 tenants:
   - email: sarah@example.com
     name: sarah
     services: [postgres]
     admin: true
+    repos: [Acme/api, Acme/web]
   - email: alex@example.com
     name: alex

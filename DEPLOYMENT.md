@@ -60,6 +60,34 @@ thing you have to change.
 > convenience; if you move durable volumes to NFS, consider leaving the
 > database local or accepting that it is disposable.
 
+### Declared repos
+
+The split makes the work volume small; declaring repos is what makes it
+*rebuildable*. List them per tenant in `tenants.yaml`:
+
+```yaml
+repo_base: "git@github.com:"     # default; bare owner/name resolves against it
+tenants:
+  - email: alice@example.com
+    name: alice
+    repos: [Acme/api, Acme/web, https://github.com/other/thing.git]
+```
+
+`vswarm provision` writes the expanded list to `~/.config/vswarm/repos`, and
+the workspace gets a `vswarm-repos` command:
+
+```bash
+vswarm-repos status   # what is declared, and what is actually present
+vswarm-repos sync     # clone the missing ones
+```
+
+`sync` only ever clones what is absent. It never re-clones, resets or pulls an
+existing checkout — uncommitted work is precisely what the rest of this design
+exists to protect, so the one operation that could destroy it is not offered.
+
+Cloning uses the tenant's own credentials inside their workspace, so nothing
+about repo access moves into the deployment layer.
+
 ### Credential delivery
 
 `vswarm` owns the path and the modes; the deployment layer owns the material.

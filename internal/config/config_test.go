@@ -237,3 +237,59 @@ func TestDefaultStorageDriverIsLocal(t *testing.T) {
 		t.Errorf("Validate() should normalise an empty driver to local, got %q", empty.Storage.Driver)
 	}
 }
+
+func TestTenantReposParseAndExpand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	input := `domain: code.example.com
+repo_base: "git@git.example.com:"
+tenants:
+  - email: alice@example.com
+    name: alice
+    repos: [Acme/api, Acme/web, https://github.com/other/thing.git]
+`
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Tenants[0].Repos) != 3 {
+		t.Fatalf("repos = %#v", c.Tenants[0].Repos)
+	}
+	if got := c.RepoURL("Acme/api"); got != "git@git.example.com:Acme/api" {
+		t.Errorf("RepoURL(slug) = %q", got)
+	}
+	// Anything already addressable must survive untouched, or a full URL in the
+	// manifest would be silently prefixed into nonsense.
+	for _, verbatim := range []string{
+		"https://github.com/other/thing.git",
+		"git@github.com:other/thing.git",
+		"ssh://git@host/x/y",
+	} {
+		if got := c.RepoURL(verbatim); got != verbatim {
+			t.Errorf("RepoURL(%q) = %q, want unchanged", verbatim, got)
+		}
+	}
+	for entry, want := range map[string]string{
+		"Acme/api":                           "api",
+		"https://github.com/other/thing.git": "thing",
+		"git@github.com:other/thing.git":     "thing",
+	} {
+		if got := RepoDir(entry); got != want {
+			t.Errorf("RepoDir(%q) = %q, want %q", entry, got, want)
+		}
+	}
+
+	c.Path = path
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.Tenants[0].Repos) != 3 || again.RepoBase != "git@git.example.com:" {
+		t.Errorf("repos lost on round trip: base=%q repos=%#v", again.RepoBase, again.Tenants[0].Repos)
+	}
+}
