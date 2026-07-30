@@ -258,12 +258,11 @@ func cmdMigrate(args []string) error {
 			excludes = append(excludes, "--exclude="+p)
 		}
 	}
-	script := "set -eu; tar -C /src -cf - " + strings.Join(excludes, " ") + " . | tar -C /dst -xf -; chown -R 1000:1000 /dst"
 	if err := dockerx.Run("docker", "run", "--rm", "-u", "0",
 		"--network", "none",
 		"-v", abs+":/src:ro",
 		"-v", vol+":/dst",
-		c.Image, "sh", "-c", script); err != nil {
+		c.Image, "bash", "-c", migrateScript(excludes)); err != nil {
 		return fmt.Errorf("migrate %s: %w", name, err)
 	}
 
@@ -273,6 +272,19 @@ func cmdMigrate(args []string) error {
 	}
 	fmt.Printf("  %s left in place — verify the workspace, then remove it yourself\n", legacy)
 	return nil
+}
+
+// migrateScript copies /src into /dst through a tar pipe.
+//
+// Run under bash with pipefail, not sh: under sh the pipeline's status is the
+// extracting tar, which exits 0 after unpacking a truncated stream, so a
+// failing source tar would be reported as a successful migration. The legacy
+// home is the only other copy of this data, and the operator is told to delete
+// it once the workspace looks right — a silent partial copy is how that
+// deletion loses work.
+func migrateScript(excludes []string) string {
+	return "set -euo pipefail; tar -C /src -cf - " + strings.Join(excludes, " ") +
+		" . | tar -C /dst -xf -; chown -R 1000:1000 /dst"
 }
 
 // adoptPGPassword lifts the password out of a legacy ~/.pg.env into the

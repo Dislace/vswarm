@@ -54,9 +54,12 @@ func cmdDoctor() error {
 	// Comparing device numbers proves the cache mount actually took, which a
 	// glance at the compose file cannot: a typo'd mount path silently lands
 	// the cache back inside the work volume and nothing else would notice.
+	// "Could not determine" is not "is separate": if the stat cannot be read the
+	// check has to fail, or the one check that proves the mount took would pass
+	// green for a stopped container and never fail for the reason it exists.
 	for _, t := range c.Tenants {
-		same, detail := sameDevice("vswarm-"+t.Name, render.HomeDir, render.CacheDir)
-		check("cache is a separate volume for "+t.Name, !same, detail)
+		separate, detail := devicesDiffer("vswarm-"+t.Name, render.HomeDir, render.CacheDir)
+		check("cache is a separate volume for "+t.Name, separate, detail)
 	}
 
 	for _, t := range c.Tenants {
@@ -207,8 +210,17 @@ func containerMode(container, path string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-func sameDevice(container, a, b string) (bool, string) {
+// devicesDiffer reports whether a and b sit on different filesystems inside the
+// container. It returns false whenever that cannot be established — an
+// unreadable stat is an unknown, and an unknown must not read as a pass.
+func devicesDiffer(container, a, b string) (bool, string) {
 	out, err := dockerx.Exec(container, "stat", "-c", "%d", a, b)
+	return interpretDevices(out, err)
+}
+
+// interpretDevices maps a two-path `stat -c %d` result onto the check's verdict.
+// Split from the docker call so the unknown-is-not-a-pass rule is testable.
+func interpretDevices(out string, err error) (bool, string) {
 	if err != nil {
 		return false, errStr(err)
 	}
@@ -217,9 +229,9 @@ func sameDevice(container, a, b string) (bool, string) {
 		return false, "unexpected stat output: " + strings.TrimSpace(out)
 	}
 	if fields[0] == fields[1] {
-		return true, "both on device " + fields[0]
+		return false, "both on device " + fields[0]
 	}
-	return false, ""
+	return true, ""
 }
 
 func pathDetail(mode string, err error) string {
