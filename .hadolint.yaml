@@ -1,4 +1,3 @@
 ignored:
-  # Apt packages and t3 intentionally track latest.
   - DL3008
   - DL3016

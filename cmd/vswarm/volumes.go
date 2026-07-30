@@ -11,9 +11,6 @@ import (
 	"github.com/dislace/vswarm/internal/render"
 )
 
-// Paths under the tenant home that any machine with a network can rebuild.
-// `vswarm migrate` drops them rather than hauling them to the new volume;
-// they are typically the majority of a home's size.
 var derivedPaths = []string{
 	".cache",
 	".npm",
@@ -48,15 +45,6 @@ func cmdProvision(args []string) error {
 	return provisionTenant(c, pos[0], from, remove...)
 }
 
-// provisionTenant delivers everything vswarm owns the delivery of into a
-// tenant's work volume: the postgres contract it mints itself, plus whatever
-// tree the deployment layer staged. Callable with an empty `from` — `up` does
-// exactly that so a fresh workspace gets its ~/.pg.env without an extra step.
-//
-// `remove` paths are deleted from the volume. Delivery alone cannot express
-// revocation, and revocation is the half that matters: a tenant that loses
-// `admin: true` must lose the key with it, not keep it until someone reads a
-// doctor failure.
 func provisionTenant(c *config.Config, name, from string, remove ...string) error {
 	t, ok := c.Tenant(name)
 	if !ok {
@@ -139,18 +127,10 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 	return nil
 }
 
-// volumeRun runs one command against tenant volumes in the workspace image.
-//
-// --entrypoint is not optional. The image's ENTRYPOINT execs the t3 server and
-// never looks at "$@", so a bare `docker run <image> sh -c ...` ignores the
-// script, starts a workspace as root and blocks until something kills it. Every
-// volume helper here has to override it or it silently does nothing at all.
 func volumeRun(image, entrypoint string, mounts, args []string) error {
 	return dockerx.Run("docker", volumeRunArgs(image, entrypoint, mounts, args)...)
 }
 
-// volumeRunArgs is split out so the --entrypoint override is covered by a test
-// rather than by whoever next edits these call sites.
 func volumeRunArgs(image, entrypoint string, mounts, args []string) []string {
 	full := []string{"run", "--rm", "-u", "0", "--network", "none", "--entrypoint", entrypoint}
 	full = append(full, mounts...)
@@ -158,11 +138,6 @@ func volumeRunArgs(image, entrypoint string, mounts, args []string) []string {
 	return append(full, args...)
 }
 
-// revoke deletes paths from the work volume. Idempotent: a path that is
-// already gone is the desired state, not an error.
-//
-// Passed as argv rather than through a shell so the paths never get a chance to
-// be reinterpreted as script on their way into an `rm -rf` running as root.
 func revoke(image, volume string, paths []string) error {
 	args := []string{"-rf"}
 	for _, p := range paths {
@@ -171,9 +146,6 @@ func revoke(image, volume string, paths []string) error {
 	return volumeRun(image, "rm", []string{"-v", volume + ":/dst"}, args)
 }
 
-// checkRelPath refuses anything that could escape the volume. These paths are
-// interpolated into an `rm -rf` running as root, so "the caller is Ansible" is
-// not a good enough reason to skip the check.
 func checkRelPath(p string) error {
 	if p == "" {
 		return fmt.Errorf("--remove: empty path")
@@ -193,34 +165,12 @@ func checkRelPath(p string) error {
 	return nil
 }
 
-// deliver copies a staged tree into the tenant's work volume through a
-// throwaway root container. Going through the container is what lets the
-// volume live behind any driver: vswarm never needs to know where the data
-// actually sits on (or off) this host.
-//
-// Modes are applied here rather than trusted from the staging tree so the
-// delivered contract is the same whatever the deployment layer handed us.
 func deliver(image, stage, volume string) error {
 	return volumeRun(image, "bash",
 		[]string{"-v", stage + ":/src:ro", "-v", volume + ":/dst"},
 		[]string{"-c", deliverScript})
 }
 
-// deliverScript is bash, not sh, on two counts that both failed silently on the
-// first live run.
-//
-// `read -d` with an empty delimiter is a bashism. Under dash the read errors,
-// and because it is the
-// while loop's condition `set -e` does not fire — the loop simply never
-// iterates, so nothing delivered ever got chowned while the chmods after it
-// still ran. Ownership was wrong and the modes looked right.
-//
-// `cp -a /src/. /dst/` also carries the staging directory's own mode and owner
-// onto the volume root. The deployment layer stages as root 0700, so the tenant
-// home came out root-owned and unenterable by uid 1000: the tenant could not
-// read a single thing that had just been delivered to them. /dst is therefore
-// reset to the image's own contract explicitly rather than inherited from
-// whatever staged the tree.
 const deliverScript = `set -euo pipefail
 cp -a /src/. /dst/
 chown 1000:1000 /dst
@@ -235,8 +185,6 @@ fi
 find /dst -maxdepth 1 -type f -name '*.env' -exec chmod 0600 {} +
 `
 
-// copyTree stages a host directory with a container so ownership in the
-// staging area never depends on who ran vswarm.
 func copyTree(image, src, dst string) error {
 	return volumeRun(image, "sh",
 		[]string{"-v", src + ":/src:ro", "-v", dst + ":/dst"},
@@ -276,9 +224,6 @@ func cmdMigrate(args []string) error {
 		return err
 	}
 
-	// Carry the postgres password across before anything else: it used to live
-	// in the home as ~/.pg.env and is the one value a re-render cannot re-mint
-	// without silently locking the tenant out of its own database.
 	if err := adoptPGPassword(name, filepath.Join(legacy, ".pg.env")); err != nil {
 		return err
 	}
@@ -308,21 +253,11 @@ func cmdMigrate(args []string) error {
 	return nil
 }
 
-// migrateScript copies /src into /dst through a tar pipe.
-//
-// Run under bash with pipefail, not sh: under sh the pipeline's status is the
-// extracting tar, which exits 0 after unpacking a truncated stream, so a
-// failing source tar would be reported as a successful migration. The legacy
-// home is the only other copy of this data, and the operator is told to delete
-// it once the workspace looks right — a silent partial copy is how that
-// deletion loses work.
 func migrateScript(excludes []string) string {
 	return "set -euo pipefail; tar -C /src -cf - " + strings.Join(excludes, " ") +
 		" . | tar -C /dst -xf -; chown -R 1000:1000 /dst"
 }
 
-// adoptPGPassword lifts the password out of a legacy ~/.pg.env into the
-// host-side store render now reads. Never overwrites an existing value.
 func adoptPGPassword(name, legacyEnv string) error {
 	dst := render.PGPasswordPath(name)
 	if raw, err := os.ReadFile(dst); err == nil && strings.TrimSpace(string(raw)) != "" {
@@ -355,9 +290,6 @@ func envValue(env, key string) string {
 	return ""
 }
 
-// requireVolume refuses to let `docker run` auto-create a missing volume: it
-// would be created with the default driver, quietly ignoring `storage:` and
-// stranding the tenant's data on the wrong backend.
 func requireVolume(name string) error {
 	if _, err := dockerx.Output("docker", "volume", "inspect", name); err != nil {
 		return fmt.Errorf("volume %s does not exist — run `vswarm up` first so it is created with the configured driver", name)

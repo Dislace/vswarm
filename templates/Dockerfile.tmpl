@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       vim \
  && rm -rf /var/lib/apt/lists/*
 
-# GitHub CLI — users run `gh auth login`; auth persists on their home volume.
 RUN install -m 0755 -d /etc/apt/keyrings \
  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
@@ -22,8 +21,6 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-# T3 stays image-managed because loading an update requires restarting its
-# server. Interactive CLIs are side-by-side releases managed independently.
 RUN npm install -g t3@0.0.29-nightly.20260721.864 \
  && npm cache clean --force
 
@@ -39,9 +36,6 @@ RUN userdel -r node 2>/dev/null || true \
  && echo 'ai-agent ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ai-agent \
  && chmod 0440 /etc/sudoers.d/ai-agent
 
-# Docker seeds an empty named volume from whatever the image has at the mount
-# point, ownership included. Without these the cache volume would mount as
-# root-owned and every tool writing a cache would fail as uid 1000.
 RUN install -d -o ai-agent -g ai-agent -m 0755 \
       /home/ai-agent/.cache \
       /home/ai-agent/.cache/npm \

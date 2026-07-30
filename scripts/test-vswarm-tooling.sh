@@ -28,8 +28,6 @@ codex|npm|@openai/codex|codex|3.4.0|-
 go|go|go.dev|go|1.26.5|gofmt
 EOF
 
-# A real executable models a process using an older release. The updater must
-# retain its release directory until the process exits.
 cp /bin/sleep "${test_root}/state/releases/claude/0.0.1/bin/claude"
 ln -s "${test_root}/state/releases/claude/0.0.1/bin/claude" "${test_root}/bin/claude"
 "${test_root}/bin/claude" 120 &
@@ -141,8 +139,6 @@ test -x "${test_root}/state/releases/claude/0.0.1/bin/claude"
 "${test_root}/bin/go" version | grep -F 'go1.26.5'
 "${test_root}/bin/gofmt" | grep -F 'gofmt fixture'
 
-# A concurrent reconciliation must fail immediately instead of leaving a stale
-# directory lock behind.
 exec 8>"${test_root}/state/update.lock"
 flock -n 8
 if "${updater}" update codex; then
@@ -155,7 +151,6 @@ flock -u 8
 grep -qx 'claude=9.0.0' "${test_root}/home/.config/vswarm-tooling/overrides.env"
 "${updater}" status claude | grep -E 'selected=9\.0\.0 .*channel=latest +ahead$'
 
-# Normal reconciliation preserves a selected newer channel.
 "${updater}" update all
 "${updater}" status all >"${test_root}/selected-status"
 grep -E '^claude .* installed=9\.0\.0 .* ahead$' "${test_root}/selected-status"
@@ -171,9 +166,8 @@ test ! -s "${test_root}/home/.config/vswarm-tooling/overrides.env"
 test ! -e "${test_root}/state/releases/claude/0.0.1"
 test -x "${test_root}/state/releases/claude/9.0.0/bin/claude"
 
-# A manifest is parsed as data, never sourced as shell.
 marker="${test_root}/manifest-executed"
-# shellcheck disable=SC2016 # the command substitution must remain literal test data
+# shellcheck disable=SC2016
 printf 'oops|npm|pkg|tool|1.2.3|$(touch %s)\n' "${marker}" >"${test_root}/malicious.tsv"
 if VSWARM_TOOLING_MANIFEST="${test_root}/malicious.tsv" "${updater}" status all; then
   echo "malicious manifest unexpectedly passed validation" >&2
@@ -181,7 +175,6 @@ if VSWARM_TOOLING_MANIFEST="${test_root}/malicious.tsv" "${updater}" status all;
 fi
 test ! -e "${marker}"
 
-# A mismatched upstream checksum fails closed without selecting the release.
 find "${test_root}/state/releases/go" -depth -delete
 unlink "${test_root}/bin/go"
 unlink "${test_root}/bin/gofmt"

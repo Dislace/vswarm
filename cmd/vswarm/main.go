@@ -174,10 +174,7 @@ func cmdBuild() error {
 	if c.ImageOverlay == "" {
 		return dockerx.Run("docker", "build", "-t", c.Image, "generated/image")
 	}
-	// Deployment-owned overlay: build the stock image under a -base tag, then
-	// layer the overlay Dockerfile on top so the final tag is what tenants run.
-	// Contract: the overlay starts with `ARG VSWARM_BASE_IMAGE` +
-	// `FROM ${VSWARM_BASE_IMAGE}`; its build context is the overlay's directory.
+
 	if _, err := os.Stat(c.ImageOverlay); err != nil {
 		return fmt.Errorf("image_overlay %q: %w", c.ImageOverlay, err)
 	}
@@ -192,8 +189,6 @@ func cmdBuild() error {
 		filepath.Dir(c.ImageOverlay))
 }
 
-// baseImageTag derives the tag the stock image is built under when an overlay
-// produces the final image: `repo:tag` -> `repo:tag-base`, `repo` -> `repo:base`.
 func baseImageTag(image string) string {
 	slash := strings.LastIndex(image, "/")
 	if colon := strings.LastIndex(image, ":"); colon > slash {

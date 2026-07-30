@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Manage workspace CLI releases without rebuilding or restarting the workspace.
-#
-# Tools are declared in a root-owned manifest. Releases are installed side by
-# side, verified, then selected with an atomic symlink switch. A running CLI
-# therefore keeps the release tree it started with while new processes use the
-# selected version.
 
 set -euo pipefail
 

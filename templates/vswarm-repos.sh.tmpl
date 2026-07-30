@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# Clone the repos this workspace is declared to hold.
-#
-# The manifest is delivered by `vswarm provision` from the `repos:` list in
-# tenants.yaml. It exists so a workspace can be rebuilt rather than copied:
-# everything committed is already on the remote, so a move only has to carry
-# the uncommitted diff.
-#
-# Never destructive. Existing checkouts are reported, never re-cloned, never
-# reset, never pulled — someone's uncommitted work is exactly what this whole
-# design is trying not to lose.
 set -euo pipefail
 
 MANIFEST="${VSWARM_REPOS_MANIFEST:-${HOME}/.config/vswarm/repos}"
