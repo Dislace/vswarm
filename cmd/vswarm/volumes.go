@@ -87,6 +87,21 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 		}
 	}
 
+	if len(t.Repos) > 0 {
+		dir := filepath.Join(stage, ".config", "vswarm")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		var manifest strings.Builder
+		manifest.WriteString("# Delivered by `vswarm provision` from tenants.yaml. Run `vswarm-repos sync`.\n")
+		for _, r := range t.Repos {
+			manifest.WriteString(c.RepoURL(r) + "\n")
+		}
+		if err := os.WriteFile(filepath.Join(dir, "repos"), []byte(manifest.String()), 0o644); err != nil {
+			return err
+		}
+	}
+
 	if t.HasService("postgres") {
 		pw, err := os.ReadFile(render.PGPasswordPath(name))
 		if err != nil {

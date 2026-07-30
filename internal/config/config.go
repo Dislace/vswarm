@@ -14,6 +14,11 @@ type Tenant struct {
 	Name     string
 	Services []string
 	Admin    bool
+	// Repos the workspace should hold. Declaring them is what turns a tenant
+	// from bytes you have to copy into something a new host can re-materialize:
+	// everything committed is already on the remote, so only the diff is
+	// precious. Entries are either full URLs or `owner/name` against RepoBase.
+	Repos []string
 }
 
 func (t Tenant) HasService(name string) bool {
@@ -46,6 +51,7 @@ type Config struct {
 	ImageOverlay string
 	DBImage      string
 	Team         string
+	RepoBase     string
 	Resources    Resources
 	Storage      Storage
 	TokenTTL     string
@@ -67,6 +73,7 @@ func Default() *Config {
 		Image:        "vswarm/workspace:latest",
 		DBImage:      "timescale/timescaledb:2.28.2-pg17",
 		Resources:    Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
+		RepoBase:     "git@github.com:",
 		Storage:      Storage{Driver: "local", Opts: map[string]string{}},
 		TokenTTL:     "30d",
 		ManageTunnel: true,
@@ -110,6 +117,11 @@ func Parse(path string) (*Config, error) {
 				section = ""
 			case "team":
 				c.Team = unquote(val)
+				section = ""
+			case "repo_base":
+				if val != "" {
+					c.RepoBase = unquote(val)
+				}
 				section = ""
 			case "token_ttl":
 				if val != "" {
@@ -195,8 +207,33 @@ func applyTenant(t *Tenant, k, v string) error {
 		}
 	case "admin":
 		t.Admin = parseBool(v)
+	case "repos":
+		t.Repos = append(t.Repos, parseList(v)...)
 	}
 	return nil
+}
+
+// RepoURL expands a manifest entry. Anything that already looks like a URL or
+// an scp-style remote is passed through untouched; a bare owner/name is
+// resolved against RepoBase.
+func (c *Config) RepoURL(entry string) string {
+	if strings.Contains(entry, "://") || strings.Contains(entry, "@") {
+		return entry
+	}
+	return c.RepoBase + entry
+}
+
+// RepoDir is the directory a manifest entry is cloned into, relative to the
+// tenant's repos root.
+func RepoDir(entry string) string {
+	s := strings.TrimSuffix(entry, ".git")
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
+	}
+	if i := strings.LastIndex(s, ":"); i >= 0 {
+		s = s[i+1:]
+	}
+	return s
 }
 
 func (c *Config) Validate() error {
@@ -269,6 +306,9 @@ func (c *Config) Save() error {
 	if c.Team != "" {
 		fmt.Fprintf(&b, "team: %s\n", c.Team)
 	}
+	if c.RepoBase != "" {
+		fmt.Fprintf(&b, "repo_base: %q\n", c.RepoBase)
+	}
 	b.WriteString("resources:\n")
 	fmt.Fprintf(&b, "  cpus: \"%s\"\n", c.Resources.CPUs)
 	fmt.Fprintf(&b, "  memory: %s\n", c.Resources.Memory)
@@ -292,6 +332,9 @@ func (c *Config) Save() error {
 		}
 		if t.Admin {
 			b.WriteString("    admin: true\n")
+		}
+		if len(t.Repos) > 0 {
+			fmt.Fprintf(&b, "    repos: [%s]\n", strings.Join(t.Repos, ", "))
 		}
 	}
 	return os.WriteFile(c.Path, []byte(b.String()), 0o644)

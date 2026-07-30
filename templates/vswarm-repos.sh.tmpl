@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Clone the repos this workspace is declared to hold.
+#
+# The manifest is delivered by `vswarm provision` from the `repos:` list in
+# tenants.yaml. It exists so a workspace can be rebuilt rather than copied:
+# everything committed is already on the remote, so a move only has to carry
+# the uncommitted diff.
+#
+# Never destructive. Existing checkouts are reported, never re-cloned, never
+# reset, never pulled — someone's uncommitted work is exactly what this whole
+# design is trying not to lose.
+set -euo pipefail
+
+MANIFEST="${VSWARM_REPOS_MANIFEST:-${HOME}/.config/vswarm/repos}"
+ROOT="${VSWARM_REPOS_ROOT:-${HOME}/repos}"
+
+usage() {
+  cat <<'USAGE'
+vswarm-repos — materialise the repos this workspace is declared to hold
+
+USAGE
+  vswarm-repos status    list declared repos and whether they are present
+  vswarm-repos sync      clone the ones that are missing
+
+The manifest is ~/.config/vswarm/repos, delivered by "vswarm provision".
+USAGE
+}
+
+entries() {
+  [ -r "${MANIFEST}" ] || return 0
+  grep -vE '^[[:space:]]*(#|$)' "${MANIFEST}" || true
+}
+
+dir_for() {
+  local url=$1 base
+  base=${url%.git}
+  base=${base##*/}
+  base=${base##*:}
+  printf '%s' "${base}"
+}
+
+cmd_status() {
+  local found=0 url dir
+  while IFS= read -r url; do
+    [ -n "${url}" ] || continue
+    found=1
+    dir=$(dir_for "${url}")
+    if [ -d "${ROOT}/${dir}/.git" ]; then
+      printf 'present  %-24s %s\n' "${dir}" "${url}"
+    else
+      printf 'MISSING  %-24s %s\n' "${dir}" "${url}"
+    fi
+  done < <(entries)
+  if [ "${found}" -eq 0 ]; then
+    echo "no repos declared (${MANIFEST})"
+  fi
+}
+
+cmd_sync() {
+  local url dir cloned=0 failed=0
+  mkdir -p "${ROOT}"
+  while IFS= read -r url; do
+    [ -n "${url}" ] || continue
+    dir=$(dir_for "${url}")
+    if [ -e "${ROOT}/${dir}" ]; then
+      continue
+    fi
+    echo "cloning ${url} -> ${ROOT}/${dir}"
+    if git clone --recurse-submodules "${url}" "${ROOT}/${dir}"; then
+      cloned=$((cloned + 1))
+    else
+      echo "failed: ${url}" >&2
+      failed=$((failed + 1))
+    fi
+  done < <(entries)
+  echo "cloned ${cloned}, failed ${failed}"
+  [ "${failed}" -eq 0 ]
+}
+
+case "${1:-status}" in
+  status) cmd_status ;;
+  sync) cmd_sync ;;
+  -h | --help | help) usage ;;
+  *)
+    echo "unknown command: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

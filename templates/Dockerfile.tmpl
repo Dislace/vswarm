@@ -51,7 +51,8 @@ RUN install -d -o ai-agent -g ai-agent -m 0755 \
       /home/ai-agent/.cache/pip
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY vswarm-repos /usr/local/bin/vswarm-repos
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/vswarm-repos
 
 COPY prompt.sh /tmp/prompt.sh
 RUN cat /tmp/prompt.sh >> /etc/bash.bashrc && rm /tmp/prompt.sh
