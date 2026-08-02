@@ -25,11 +25,18 @@ RUN npm install -g t3@0.0.32-nightly.20260730.955 \
  && npm cache clean --force
 
 COPY vswarm-tooling /usr/local/bin/vswarm-tooling
+COPY vswarm-codex-state-reconcile.ts /usr/local/lib/vswarm/
+COPY vswarm-codex-state-reconcile /usr/local/bin/vswarm-codex-state-reconcile
 COPY tools.tsv /etc/vswarm-tooling/tools.tsv
 RUN chmod 0755 /usr/local/bin/vswarm-tooling \
+ && chmod 0755 /usr/local/bin/vswarm-codex-state-reconcile \
  && chmod 0644 /etc/vswarm-tooling/tools.tsv \
  && vswarm-tooling update all \
  && npm cache clean --force
+
+RUN install -d -m 0755 /etc/codex \
+ && printf '%s\n' 'check_for_update_on_startup = false' > /etc/codex/managed_config.toml \
+ && chmod 0644 /etc/codex/managed_config.toml
 
 RUN userdel -r node 2>/dev/null || true \
  && useradd -m -u 1000 -s /bin/bash ai-agent \

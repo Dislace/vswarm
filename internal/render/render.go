@@ -168,6 +168,8 @@ func Render(c *config.Config) error {
 		{"entrypoint.sh.tmpl", filepath.Join(GeneratedDir, "image", "entrypoint.sh"), 0o755},
 		{"prompt.sh.tmpl", filepath.Join(GeneratedDir, "image", "prompt.sh"), 0o644},
 		{"vswarm-tooling.sh.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-tooling"), 0o755},
+		{"vswarm-codex-state-reconcile.ts.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-codex-state-reconcile.ts"), 0o644},
+		{"vswarm-codex-state-reconcile.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-codex-state-reconcile"), 0o755},
 		{"vswarm-repos.sh.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-repos"), 0o755},
 		{"tools.tsv.tmpl", filepath.Join(GeneratedDir, "image", "tools.tsv"), 0o644},
 	}

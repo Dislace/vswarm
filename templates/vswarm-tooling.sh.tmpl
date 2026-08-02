@@ -319,7 +319,12 @@ verify_release() {
 link_tool_binaries() {
   local tool="$1" release="$2" primary extras alias
   primary="${tool_binary[${tool}]}"
-  atomic_link "${release}/bin/${primary}" "${primary}"
+  if [[ "${tool}" == claude || "${tool}" == codex ]]; then
+    install_managed_launcher "${tool}" "${release}" "${primary}"
+    atomic_link "${release}/vswarm-bin/${primary}" "${primary}"
+  else
+    atomic_link "${release}/bin/${primary}" "${primary}"
+  fi
   extras="${tool_extras[${tool}]}"
   [[ "${extras}" == "-" ]] && return
   IFS=',' read -ra aliases <<<"${extras}"
@@ -328,6 +333,33 @@ link_tool_binaries() {
       || fail "${tool} release does not contain declared binary ${alias}"
     atomic_link "${release}/bin/${alias}" "${alias}"
   done
+}
+
+install_managed_launcher() {
+  local tool="$1" release="$2" binary="$3" launcher_dir launcher
+  launcher_dir="${release}/vswarm-bin"
+  launcher="${launcher_dir}/${binary}"
+  mkdir -p "${launcher_dir}"
+  case "${tool}" in
+    claude)
+      cat >"${launcher}" <<EOF
+#!/bin/sh
+export DISABLE_AUTOUPDATER=1
+exec "${release}/bin/${binary}" "\$@"
+EOF
+      ;;
+    codex)
+      cat >"${launcher}" <<EOF
+#!/bin/sh
+export NPM_CONFIG_PREFIX="${release}"
+if [ "\${1:-}" = update ]; then
+  exec "${bin_dir}/vswarm-tooling" update codex --latest
+fi
+exec "${release}/bin/${binary}" "\$@"
+EOF
+      ;;
+  esac
+  chmod 0755 "${launcher}"
 }
 
 install_npm_tool() {

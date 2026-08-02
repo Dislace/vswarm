@@ -126,6 +126,7 @@ export VSWARM_TOOLING_ROOT="${test_root}/state"
 export VSWARM_TOOLING_MANIFEST="${manifest}"
 export VSWARM_TOOLING_BIN_DIR="${test_root}/bin"
 export VSWARM_TOOLING_HOME="${test_root}/home"
+ln -s "${updater}" "${test_root}/bin/vswarm-tooling"
 
 "${updater}" status all >"${test_root}/missing-status"
 grep -E '^claude +installed=0\.0\.1 .* stale$' "${test_root}/missing-status"
@@ -133,9 +134,14 @@ grep -E '^codex +installed=missing .* stale$' "${test_root}/missing-status"
 
 "${updater}" update all
 test "$(readlink "${test_root}/bin/claude")" = \
-  "${test_root}/state/releases/claude/2.1.0/bin/claude"
+  "${test_root}/state/releases/claude/2.1.0/vswarm-bin/claude"
 test -x "${test_root}/state/releases/claude/0.0.1/bin/claude"
+test "$(env -u DISABLE_AUTOUPDATER "${test_root}/bin/claude" --version)" = 'claude 2.1.0'
+grep -q 'DISABLE_AUTOUPDATER=1' "${test_root}/state/releases/claude/2.1.0/vswarm-bin/claude"
+grep -q "NPM_CONFIG_PREFIX=\"${test_root}/state/releases/codex/3.4.0\"" \
+  "${test_root}/state/releases/codex/3.4.0/vswarm-bin/codex"
 "${test_root}/bin/codex" --version | grep -F '3.4.0'
+"${test_root}/bin/codex" update | grep -F 'codex: already 3.4.0'
 "${test_root}/bin/go" version | grep -F 'go1.26.5'
 "${test_root}/bin/gofmt" | grep -F 'gofmt fixture'
 
@@ -161,7 +167,7 @@ wait "${old_claude_pid}" 2>/dev/null || true
 old_claude_pid=""
 "${updater}" rollback claude
 test "$(readlink "${test_root}/bin/claude")" = \
-  "${test_root}/state/releases/claude/2.1.0/bin/claude"
+  "${test_root}/state/releases/claude/2.1.0/vswarm-bin/claude"
 test ! -s "${test_root}/home/.config/vswarm-tooling/overrides.env"
 test ! -e "${test_root}/state/releases/claude/0.0.1"
 test -x "${test_root}/state/releases/claude/9.0.0/bin/claude"
