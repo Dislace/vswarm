@@ -73,6 +73,14 @@ func TestRenderProducesIsolatedTenantConfiguration(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o755 {
 		t.Fatalf("vswarm-tooling mode = %o, want 755", got)
 	}
+	reconcile := filepath.Join(GeneratedDir, "image", "vswarm-codex-state-reconcile")
+	info, err = os.Stat(reconcile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("vswarm-codex-state-reconcile mode = %o, want 755", got)
+	}
 	manifest := readFile(t, filepath.Join(GeneratedDir, "image", "tools.tsv"))
 	for _, want := range []string{
 		"claude|npm|@anthropic-ai/claude-code|claude|",

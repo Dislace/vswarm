@@ -1,0 +1,39 @@
+import { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+const apply = process.argv.includes("--apply");
+const codexHome = process.env.CODEX_HOME ?? join(process.env.HOME ?? "/home/ai-agent", ".codex");
+const statePath = join(codexHome, "state_5.sqlite");
+
+if (!existsSync(statePath)) {
+  console.log(`codex state database not found: ${statePath}`);
+  process.exit(0);
+}
+
+const database = new Database(statePath);
+database.exec("PRAGMA busy_timeout = 30000");
+const columns = database.query("PRAGMA table_info(threads)").all() as Array<{ name: string }>;
+const names = new Set(columns.map(({ name }) => name));
+if (!names.has("id") || !names.has("rollout_path")) {
+  database.close();
+  throw new Error("unsupported Codex threads schema");
+}
+
+const rows = database.query("SELECT id, rollout_path FROM threads").all() as Array<{
+  id: string;
+  rollout_path: string;
+}>;
+const stale = rows.filter(({ rollout_path }) => !existsSync(rollout_path));
+
+if (apply && stale.length > 0) {
+  const remove = database.query("DELETE FROM threads WHERE id = ? AND rollout_path = ?");
+  database.transaction(() => {
+    for (const { id, rollout_path } of stale) {
+      remove.run(id, rollout_path);
+    }
+  })();
+}
+
+database.close();
+console.log(`${apply ? "removed" : "found"} ${stale.length} stale Codex thread rows`);

@@ -15,7 +15,7 @@ fmtcheck:
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
 
 lint:
-	@if command -v shellcheck >/dev/null 2>&1; then shellcheck templates/entrypoint.sh.tmpl templates/vswarm-tooling.sh.tmpl scripts/*.sh; else echo "shellcheck not installed — skipping"; fi
+	@if command -v shellcheck >/dev/null 2>&1; then shellcheck templates/entrypoint.sh.tmpl templates/vswarm-tooling.sh.tmpl templates/vswarm-codex-state-reconcile.tmpl scripts/*.sh; else echo "shellcheck not installed — skipping"; fi
 	@if command -v hadolint >/dev/null 2>&1; then hadolint templates/Dockerfile.tmpl; else echo "hadolint not installed — skipping"; fi
 
 test-tooling:
