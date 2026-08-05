@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p "${T3CODE_HOME}" /home/ai-agent/repos \
+mkdir -p "${T3CODE_HOME}" \
+  "${T3CODE_HOME}/userdata/logs/terminals" \
+  /home/ai-agent/repos \
   /home/ai-agent/.cache/npm \
   /home/ai-agent/.cache/bun \
   /home/ai-agent/.cache/go/mod \
