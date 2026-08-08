@@ -172,7 +172,7 @@ func deliver(image, stage, volume string) error {
 }
 
 const deliverScript = `set -euo pipefail
-cp -a /src/. /dst/
+cp -a --no-preserve=ownership /src/. /dst/
 chown 1000:1000 /dst
 chmod 0755 /dst
 find /src -mindepth 1 -maxdepth 1 -printf '%P\0' | while IFS= read -r -d '' e; do
