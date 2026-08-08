@@ -84,6 +84,9 @@ func TestDeliverScriptResetsVolumeRootAndRequiresBash(t *testing.T) {
 	if !strings.Contains(deliverScript, "chmod 0755 /dst") {
 		t.Error("must reset the volume root mode; cp -a inherits the staging dir's")
 	}
+	if !strings.Contains(deliverScript, "cp -a --no-preserve=ownership /src/. /dst/") {
+		t.Error("cp must not stamp the staging dir's ownership onto directories the tenant already owns; a live workspace loses access to everything beneath them")
+	}
 	if strings.Contains(deliverScript, "read -r -d ''") && !strings.Contains(deliverScript, "set -euo pipefail") {
 		t.Error("script relies on a bashism, so it must be run under bash")
 	}
