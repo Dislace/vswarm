@@ -211,11 +211,11 @@ list or `-`. For example, a deployment overlay can add the Infisical CLI by
 copying a replacement manifest and reconciling it:
 
 ```text
-claude|npm|@anthropic-ai/claude-code|claude|2.1.220|-
-codex|npm|@openai/codex|codex|0.146.0|-
-bun|npm|bun|bun|1.3.14|-
-go|go|go.dev|go|1.26.5|gofmt
-infisical|npm|@infisical/cli|infisical|0.43.116|-
+claude|npm|@anthropic-ai/claude-code|claude|<version>|-
+codex|npm|@openai/codex|codex|<version>|-
+bun|npm|bun|bun|<version>|-
+go|go|go.dev|go|<version>|gofmt
+infisical|npm|@infisical/cli|infisical|<version>|-
 ```
 
 ```dockerfile
