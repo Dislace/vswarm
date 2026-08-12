@@ -17,6 +17,9 @@ const (
 	tenantsFile    = "tenants.yaml"
 	proxyContainer = "vswarm-proxy"
 	t3BaseDir      = "/home/ai-agent/.config/t3"
+
+	sessionIssueAttempts = 5
+	sessionIssueBackoff  = 2 * time.Second
 )
 
 func main() {
@@ -227,8 +230,7 @@ func pair(c *config.Config, name string) error {
 	if err := waitHealthy(container, 150*time.Second); err != nil {
 		return err
 	}
-	out, err := dockerx.Exec(container, "t3", "auth", "session", "issue",
-		"--base-dir", t3BaseDir, "--ttl", c.TokenTTL, "--json")
+	out, err := issueSession(container, c.TokenTTL)
 	if err != nil {
 		return err
 	}
@@ -246,6 +248,32 @@ func pair(c *config.Config, name string) error {
 	}
 	fmt.Printf("paired %s (token injected, proxy reloaded)\n", name)
 	return nil
+}
+
+// t3 keeps its auth sessions in SQLite under t3BaseDir, and a tenant with a
+// live agent in it holds that database. Issuing then loses the race and comes
+// back "database is locked" -- roughly half the time on a busy tenant, on
+// stdout rather than stderr and with an exit code alone to go on. `up` is
+// meant to be safe to re-run, so a single lost race must not fail it.
+func issueSession(container, ttl string) (string, error) {
+	return retryIssue(sessionIssueAttempts, sessionIssueBackoff, func() (string, error) {
+		return dockerx.Exec(container, "t3", "auth", "session", "issue",
+			"--base-dir", t3BaseDir, "--ttl", ttl, "--json")
+	})
+}
+
+func retryIssue(attempts int, backoff time.Duration, run func() (string, error)) (string, error) {
+	var out string
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if out, err = run(); err == nil {
+			return out, nil
+		}
+		if attempt < attempts {
+			time.Sleep(backoff)
+		}
+	}
+	return out, fmt.Errorf("issue session after %d attempts: %w", attempts, err)
 }
 
 func waitHealthy(container string, timeout time.Duration) error {
