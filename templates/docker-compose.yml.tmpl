@@ -55,6 +55,7 @@ services:
     image: {{$.Image}}
     container_name: {{.Container}}
     restart: unless-stopped
+    init: true
     hostname: {{$.Team}}
     networks:
       - {{.Net}}

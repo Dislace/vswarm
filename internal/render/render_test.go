@@ -45,6 +45,10 @@ func TestRenderProducesIsolatedTenantConfiguration(t *testing.T) {
 		}
 	}
 
+	if got := strings.Count(compose, "init: true"); got != len(c.Tenants) {
+		t.Errorf("init: true appears %d times, want one per tenant (%d); without it the tenant PID 1 never reaps orphans", got, len(c.Tenants))
+	}
+
 	assertFileEquals(
 		t,
 		filepath.Join(GeneratedDir, "angie", "tenants", "alice.upstream"),
