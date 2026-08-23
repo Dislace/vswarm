@@ -33,13 +33,14 @@ active_ui_sessions() {
 # nobody is using the workspace, bounce it so the swap lands. Busy workspaces
 # are left alone and retried next tick.
 (
-  while sleep "${VSWARM_TOOLING_TICK:-3600}"; do
+  while :; do
     before="$(readlink -f "${T3_BIN}" 2>/dev/null || true)"
-    vswarm-tooling >/dev/null 2>&1 || continue
+    vswarm-tooling >/dev/null 2>&1 || true
     after="$(readlink -f "${T3_BIN}" 2>/dev/null || true)"
     if [[ -n "${child_pid}" && "${before}" != "${after}" && "$(active_ui_sessions)" -eq 0 ]]; then
       kill -TERM "${child_pid}" 2>/dev/null || true
     fi
+    sleep "${VSWARM_TOOLING_TICK:-3600}"
   done
 ) &
 
