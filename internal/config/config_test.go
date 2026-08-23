@@ -319,3 +319,69 @@ func TestPlaywrightServiceAcceptedAndImageRoundTrips(t *testing.T) {
 		t.Fatal("default playwright_image must not be empty")
 	}
 }
+
+func TestParseRejectsUnknownTenantKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	in := "domain: code.example.com\ntenants:\n  - email: a@example.com\n    name: a\n    repo: [Acme/api]\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Parse(path)
+	if err == nil || !strings.Contains(err.Error(), `unknown tenant key "repo"`) {
+		t.Fatalf("Parse() error = %v, want unknown tenant key", err)
+	}
+}
+
+func TestParseRejectsUnknownResourcesKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	in := "domain: code.example.com\nresources:\n  cpu: \"2\"\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Parse(path)
+	if err == nil || !strings.Contains(err.Error(), `unknown resources key "cpu"`) {
+		t.Fatalf("Parse() error = %v, want unknown resources key", err)
+	}
+}
+
+func TestParseRejectsInvalidPids(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	in := "domain: code.example.com\nresources:\n  pids: lots\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Parse(path)
+	if err == nil || !strings.Contains(err.Error(), `invalid pids "lots"`) {
+		t.Fatalf("Parse() error = %v, want invalid pids", err)
+	}
+}
+
+func TestValidateRejectsQuoteBreakingEmails(t *testing.T) {
+	c := Default()
+	c.Domain = "code.example.com"
+	c.Tenants = []Tenant{{Email: "a# b@example.com", Name: "a"}}
+	if err := c.Validate(); err == nil {
+		t.Fatal("Validate() accepted an email that breaks the saved format")
+	}
+}
+
+func TestSaveQuotesEmailsSoTheyRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	c := Default()
+	c.Domain = "code.example.com"
+	c.Path = path
+	c.Tenants = []Tenant{{Email: "space man@example.com", Name: "spaceman"}}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse(saved config) error = %v", err)
+	}
+	if len(roundTrip.Tenants) != 1 || roundTrip.Tenants[0].Email != "space man@example.com" {
+		t.Fatalf("email did not survive the round trip: %#v", roundTrip.Tenants)
+	}
+}

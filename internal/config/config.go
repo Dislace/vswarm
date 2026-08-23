@@ -153,9 +153,13 @@ func Parse(path string) (*Config, error) {
 			case "memory":
 				c.Resources.Memory = unquote(val)
 			case "pids":
-				if p, err := strconv.Atoi(unquote(val)); err == nil {
-					c.Resources.Pids = p
+				p, err := strconv.Atoi(unquote(val))
+				if err != nil {
+					return nil, fmt.Errorf("%s:%d: invalid pids %q: %w", path, n+1, val, err)
 				}
+				c.Resources.Pids = p
+			default:
+				return nil, fmt.Errorf("%s:%d: unknown resources key %q", path, n+1, key)
 			}
 		case "storage":
 			key, val := splitKV(trim)
@@ -207,6 +211,8 @@ func applyTenant(t *Tenant, k, v string) error {
 		t.Admin = parseBool(v)
 	case "repos":
 		t.Repos = append(t.Repos, parseList(v)...)
+	default:
+		return fmt.Errorf("unknown tenant key %q", k)
 	}
 	return nil
 }
@@ -241,6 +247,9 @@ func (c *Config) Validate() error {
 	for _, t := range c.Tenants {
 		if !strings.Contains(t.Email, "@") {
 			return fmt.Errorf("tenant %q: invalid email %q", t.Name, t.Email)
+		}
+		if strings.ContainsAny(t.Email, "\"\\\n#") {
+			return fmt.Errorf("tenant %q: email contains unsupported characters", t.Name)
 		}
 		if !nameRe.MatchString(t.Name) {
 			return fmt.Errorf("tenant name %q must be DNS-safe [a-z0-9-]", t.Name)
@@ -321,7 +330,7 @@ func (c *Config) Save() error {
 	fmt.Fprintf(&b, "edge_external: %t\n", c.EdgeExternal)
 	b.WriteString("tenants:\n")
 	for _, t := range c.Tenants {
-		fmt.Fprintf(&b, "  - email: %s\n", t.Email)
+		fmt.Fprintf(&b, "  - email: %q\n", t.Email)
 		fmt.Fprintf(&b, "    name: %s\n", t.Name)
 		if len(t.Services) > 0 {
 			fmt.Fprintf(&b, "    services: [%s]\n", strings.Join(t.Services, ", "))

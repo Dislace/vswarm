@@ -25,9 +25,14 @@ const (
 
 	// T3Version pins the workspace's t3 release in both the image bootstrap
 	// and the tooling manifest; the reconciler takes over from there.
-	T3Version = "0.0.32-nightly.20260730.955"
+	T3Version = "0.0.33"
 
 	DBMemory = "1g"
+
+	// Tenant subnets are 172.31.{10+i}.0/24; i+10 must stay below 255. The
+	// same formula authorizes admin tenants on the host (core/infra), so the
+	// cap is load-bearing beyond this repo.
+	MaxTenants = 245
 
 	HomeDir  = "/home/ai-agent"
 	CacheDir = HomeDir + "/.cache"
@@ -151,6 +156,9 @@ func buildView(c *config.Config) view {
 func Render(c *config.Config) error {
 	if err := c.Validate(); err != nil {
 		return err
+	}
+	if len(c.Tenants) > MaxTenants {
+		return fmt.Errorf("%d tenants exceeds the maximum of %d (subnet space exhausted)", len(c.Tenants), MaxTenants)
 	}
 	v := buildView(c)
 
