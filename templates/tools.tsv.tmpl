@@ -1,6 +1,17 @@
+# Workspace software manifest — the single source of truth for CLI versions.
+# Rendered to generated/image/tools.tsv and bind-mounted read-only into every
+# tenant; the in-workspace reconciler converges releases to it. Annotate new
+# rows so fleet Renovate bumps them.
 t3|npm|t3|t3|{{$.T3Version}}|-
+# renovate: datasource=npm depName=@anthropic-ai/claude-code
 claude|npm|@anthropic-ai/claude-code|claude|2.1.240|-
+# renovate: datasource=npm depName=opencode-ai
 opencode|npm|opencode-ai|opencode|1.18.21|-
+# renovate: datasource=npm depName=@openai/codex
 codex|npm|@openai/codex|codex|0.149.0|-
+# renovate: datasource=npm depName=bun
 bun|npm|bun|bun|1.4.0|-
+# renovate: datasource=npm depName=Infisical/cli
+infisical|npm|@infisical/cli|infisical|0.43.121|-
+# renovate: datasource=golang-version depName=go
 go|go|go.dev|go|1.27.0|gofmt
