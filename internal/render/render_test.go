@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -352,5 +353,27 @@ func TestRenderPlaywrightSidecarOnlyWhenDeclared(t *testing.T) {
 	}
 	if strings.Contains(s, "vswarm-playwright-plain") {
 		t.Error("playwright sidecar rendered for a tenant that did not declare it")
+	}
+}
+
+func TestRenderRejectsTooManyTenants(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tenants.yaml")
+	var b strings.Builder
+	b.WriteString("domain: code.example.com\ntenants:\n")
+	for i := 0; i < MaxTenants+1; i++ {
+		fmt.Fprintf(&b, "  - email: t%d@example.com\n    name: t%d\n", i, i)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t)
+	c, err := config.Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = Render(c)
+	if err == nil || !strings.Contains(err.Error(), "maximum of") {
+		t.Fatalf("Render() error = %v, want subnet exhaustion error", err)
 	}
 }
