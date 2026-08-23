@@ -145,7 +145,11 @@ test -x "${test_root}/state/releases/claude/0.0.1/bin/claude"
 # Idempotent: a second run performs no version transitions (retention notices
 # about in-use superseded releases are allowed).
 second="$("${updater}")"
-! grep -F -- ' -> ' <<<"${second}"
+if grep -Fq -- ' -> ' <<<"${second}"; then
+  echo "converged run must not perform version transitions:" >&2
+  printf '%s\n' "${second}" >&2
+  exit 1
+fi
 
 # A held lock makes a concurrent reconcile a silent no-op, not an error.
 exec 8>"${test_root}/state/update.lock"
