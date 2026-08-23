@@ -318,3 +318,39 @@ func TestImageTemplatesAgreeWithTheCacheConstant(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderPlaywrightSidecarOnlyWhenDeclared(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tenants.yaml")
+	in := "domain: code.example.com\ntenants:\n" +
+		"  - email: pw@example.com\n    name: pw\n    services: [playwright]\n" +
+		"  - email: plain@example.com\n    name: plain\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	chdirTemp(t)
+	c, err := config.Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	compose, err := os.ReadFile(filepath.Join(GeneratedDir, "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(compose)
+	for _, want := range []string{
+		"vswarm-playwright-pw:",
+		"zenika/alpine-chrome",
+		"--remote-debugging-port=9222",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("compose missing playwright sidecar marker %q", want)
+		}
+	}
+	if strings.Contains(s, "vswarm-playwright-plain") {
+		t.Error("playwright sidecar rendered for a tenant that did not declare it")
+	}
+}

@@ -21,6 +21,7 @@ const (
 	EdgeSubnet   = "172.31.0.0/24"
 	ProxyIP      = "172.31.0.2"
 	PGPort       = "5432"
+	PWPort       = "9222"
 
 	DBMemory = "1g"
 
@@ -55,30 +56,35 @@ type tenantView struct {
 	PGUser      string
 	PGDatabase  string
 	PGPassword  string
+
+	Playwright  bool
+	PWContainer string
 }
 
 type view struct {
-	Domain       string
-	Image        string
-	DBImage      string
-	DBMemory     string
-	Team         string
-	CPUs         string
-	Memory       string
-	Pids         int
-	EdgeSubnet   string
-	ProxyIP      string
-	ProxyPort    string
-	T3Port       string
-	ManageTunnel bool
-	EdgeExternal bool
-	AnyPostgres  bool
-	HomeDir      string
-	CacheDir     string
-	CacheEnv     []kv
-	Driver       string
-	DriverOpts   []kv
-	Tenants      []tenantView
+	Domain          string
+	Image           string
+	DBImage         string
+	DBMemory        string
+	Team            string
+	CPUs            string
+	Memory          string
+	Pids            int
+	EdgeSubnet      string
+	ProxyIP         string
+	ProxyPort       string
+	T3Port          string
+	ManageTunnel    bool
+	EdgeExternal    bool
+	AnyPostgres     bool
+	PlaywrightImage string
+	PWPort          string
+	HomeDir         string
+	CacheDir        string
+	CacheEnv        []kv
+	Driver          string
+	DriverOpts      []kv
+	Tenants         []tenantView
 }
 
 func buildView(c *config.Config) view {
@@ -87,25 +93,27 @@ func buildView(c *config.Config) view {
 		team = strings.SplitN(c.Domain, ".", 2)[0]
 	}
 	v := view{
-		Domain:       c.Domain,
-		Image:        c.Image,
-		DBImage:      c.DBImage,
-		DBMemory:     DBMemory,
-		Team:         team,
-		CPUs:         c.Resources.CPUs,
-		Memory:       c.Resources.Memory,
-		Pids:         c.Resources.Pids,
-		EdgeSubnet:   EdgeSubnet,
-		ProxyIP:      ProxyIP,
-		ProxyPort:    ProxyPort,
-		T3Port:       T3Port,
-		ManageTunnel: c.ManageTunnel,
-		EdgeExternal: c.EdgeExternal,
-		HomeDir:      HomeDir,
-		CacheDir:     CacheDir,
-		CacheEnv:     cacheEnv,
-		Driver:       driverOr(c.Storage.Driver),
-		DriverOpts:   sortedOpts(c.Storage.Opts),
+		Domain:          c.Domain,
+		Image:           c.Image,
+		DBImage:         c.DBImage,
+		DBMemory:        DBMemory,
+		PlaywrightImage: c.PlaywrightImage,
+		PWPort:          PWPort,
+		Team:            team,
+		CPUs:            c.Resources.CPUs,
+		Memory:          c.Resources.Memory,
+		Pids:            c.Resources.Pids,
+		EdgeSubnet:      EdgeSubnet,
+		ProxyIP:         ProxyIP,
+		ProxyPort:       ProxyPort,
+		T3Port:          T3Port,
+		ManageTunnel:    c.ManageTunnel,
+		EdgeExternal:    c.EdgeExternal,
+		HomeDir:         HomeDir,
+		CacheDir:        CacheDir,
+		CacheEnv:        cacheEnv,
+		Driver:          driverOr(c.Storage.Driver),
+		DriverOpts:      sortedOpts(c.Storage.Opts),
 	}
 	for i, t := range c.Tenants {
 		tv := tenantView{
@@ -124,6 +132,10 @@ func buildView(c *config.Config) view {
 			tv.PGUser = "postgres"
 			tv.PGDatabase = "postgres"
 			v.AnyPostgres = true
+		}
+		if t.HasService("playwright") {
+			tv.Playwright = true
+			tv.PWContainer = "vswarm-playwright-" + t.Name
 		}
 		v.Tenants = append(v.Tenants, tv)
 	}
@@ -210,6 +222,10 @@ func PGPasswordPath(name string) string {
 func PGEnv(dbContainer, user, database, password string) string {
 	return fmt.Sprintf("PGHOST=%s\nPGPORT=%s\nPGUSER=%s\nPGPASSWORD=%s\nPGDATABASE=%s\n",
 		dbContainer, PGPort, user, password, database)
+}
+
+func PWEnv(name string) string {
+	return fmt.Sprintf("CHROMIUM_CDP_URL=http://vswarm-playwright-%s:%s\n", name, PWPort)
 }
 
 func resolvePGPassword(name string) (string, error) {

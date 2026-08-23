@@ -257,6 +257,23 @@ PGPASSWORD=<minted>
 PGDATABASE=postgres
 ```
 
+### Playwright sidecar (optional, per tenant)
+
+Opt a tenant in with `services: [playwright]`. For each opted-in tenant,
+`vswarm up` runs a stateless Chromium sidecar `vswarm-playwright-<name>` on the
+tenant's network only (image from `playwright_image:`, default
+`zenika/alpine-chrome:124`), exposing Chrome DevTools on port 9222. The
+connection contract is delivered as `~/.playwright.env`:
+
+```sh
+CHROMIUM_CDP_URL=http://vswarm-playwright-<name>:9222
+```
+
+Use it with `playwright-core` (`npm i playwright-core` — no browser download)
+via `chromium.connectOverCDP(process.env.CHROMIUM_CDP_URL)`. The sidecar is
+stateless: pages live as long as the connection; keep long-lived browser state
+in the workspace instead.
+
 Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 `dropdb && createdb && bun run migration:run`.
 

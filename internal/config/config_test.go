@@ -292,3 +292,30 @@ tenants:
 		t.Errorf("repos lost on round trip: base=%q repos=%#v", again.RepoBase, again.Tenants[0].Repos)
 	}
 }
+
+func TestPlaywrightServiceAcceptedAndImageRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	in := "domain: code.example.com\nplaywright_image: registry.example.com/chrome:1\ntenants:\n" +
+		"  - email: a@example.com\n    name: a\n    services: [playwright]\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() error = %v; playwright must be a known service", err)
+	}
+	if c.PlaywrightImage != "registry.example.com/chrome:1" {
+		t.Fatalf("playwright_image = %q", c.PlaywrightImage)
+	}
+	c.Path = path
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Parse(path)
+	if err != nil || rt.PlaywrightImage != c.PlaywrightImage {
+		t.Fatalf("round trip mismatch: %v %#v", err, rt)
+	}
+	if Default().PlaywrightImage == "" {
+		t.Fatal("default playwright_image must not be empty")
+	}
+}
