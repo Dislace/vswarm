@@ -152,13 +152,17 @@ func cmdUp() error {
 	if err := dockerx.Compose("up", "-d", "--remove-orphans"); err != nil {
 		return err
 	}
-	for _, t := range c.Tenants {
+	if err := runParallel(len(c.Tenants), func(i int) error {
+		t := c.Tenants[i]
 		if err := provisionTenant(c, t.Name, ""); err != nil {
 			return fmt.Errorf("provision %s: %w", t.Name, err)
 		}
 		if err := pair(c, t.Name); err != nil {
 			return fmt.Errorf("pair %s: %w", t.Name, err)
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	fmt.Println("up: stack running, all tenants provisioned")
 	return nil

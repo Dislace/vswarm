@@ -6,22 +6,36 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dislace/vswarm/internal/config"
 	"github.com/dislace/vswarm/internal/dockerx"
 	"github.com/dislace/vswarm/internal/render"
 )
+
+type checkResult struct {
+	name   string
+	pass   bool
+	detail string
+}
+
+// tenantChecks fans one check out across every tenant concurrently and
+// returns results in config order. A zero checkResult means "not applicable".
+func tenantChecks(c *config.Config, fn func(t config.Tenant) checkResult) []checkResult {
+	rs := make([]checkResult, len(c.Tenants))
+	_ = runParallel(len(c.Tenants), func(i int) error {
+		rs[i] = fn(c.Tenants[i])
+		return nil
+	})
+	return rs
+}
 
 func cmdDoctor() error {
 	c, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	ok := true
+	var results []checkResult
 	check := func(name string, pass bool, detail string) {
-		mark := "PASS"
-		if !pass {
-			mark, ok = "FAIL", false
-		}
-		fmt.Printf("[%s] %s%s\n", mark, name, detailSuffix(detail))
+		results = append(results, checkResult{name, pass, detail})
 	}
 
 	_, statErr := os.Stat("generated/docker-compose.yml")
@@ -33,67 +47,105 @@ func cmdDoctor() error {
 	published, detail := anyPublishedPorts()
 	check("no published host ports", !published, detail)
 
-	for _, t := range c.Tenants {
-		reach := tenantReachesProxy("vswarm-" + t.Name)
-		check("isolation: "+t.Name+" cannot reach proxy", !reach, "")
-	}
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			reach := tenantReachesProxy("vswarm-" + t.Name)
+			return checkResult{name: "isolation: " + t.Name + " cannot reach proxy", pass: !reach}
+		})...)
 
-	for _, t := range c.Tenants {
-		authed, detail := tenantTokenAuthenticates(t.Name)
-		check("token authenticates for "+t.Name, authed, detail)
-	}
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			authed, detail := tenantTokenAuthenticates(t.Name)
+			return checkResult{"token authenticates for " + t.Name, authed, detail}
+		})...)
 
-	for _, t := range c.Tenants {
+	volumeResults := make([][]checkResult, len(c.Tenants))
+	_ = runParallel(len(c.Tenants), func(i int) error {
+		t := c.Tenants[i]
+		var rs []checkResult
 		for _, vol := range []string{render.WorkVolume(t.Name), render.CacheVolume(t.Name)} {
 			_, verr := dockerx.Output("docker", "volume", "inspect", vol)
-			check("volume present: "+vol, verr == nil, errStr(verr))
+			rs = append(rs, checkResult{"volume present: " + vol, verr == nil, errStr(verr)})
 		}
+		volumeResults[i] = rs
+		return nil
+	})
+	for _, rs := range volumeResults {
+		results = append(results, rs...)
 	}
 
-	for _, t := range c.Tenants {
-		mounted, detail := cacheMountTook("vswarm-" + t.Name)
-		check("cache is a separate volume for "+t.Name, mounted, detail)
-	}
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			mounted, detail := cacheMountTook("vswarm-" + t.Name)
+			return checkResult{"cache is a separate volume for " + t.Name, mounted, detail}
+		})...)
 
-	for _, t := range c.Tenants {
-		mode, merr := containerMode("vswarm-"+t.Name, render.HomeDir+"/.ssh")
-		check("ssh perms 700 for "+t.Name, merr == nil && mode == "700", pathDetail(mode, merr))
-	}
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			mode, merr := containerMode("vswarm-"+t.Name, render.HomeDir+"/.ssh")
+			return checkResult{"ssh perms 700 for " + t.Name, merr == nil && mode == "700", pathDetail(mode, merr)}
+		})...)
 
-	for _, t := range c.Tenants {
-		if t.Admin {
-			continue
-		}
-		_, err := containerMode("vswarm-"+t.Name, adminKeyPath())
-		check("no admin key in non-admin home: "+t.Name, err != nil, adminKeyDetail(err))
-	}
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			if t.Admin {
+				return checkResult{}
+			}
+			_, err := containerMode("vswarm-"+t.Name, adminKeyPath())
+			return checkResult{"no admin key in non-admin home: " + t.Name, err != nil, adminKeyDetail(err)}
+		})...)
 
-	for _, t := range c.Tenants {
-		if !t.Admin {
-			continue
-		}
-		mode, merr := containerMode("vswarm-"+t.Name, adminKeyPath())
-		check("admin key 0600 for "+t.Name, merr == nil && mode == "600", pathDetail(mode, merr))
-	}
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			if !t.Admin {
+				return checkResult{}
+			}
+			mode, merr := containerMode("vswarm-"+t.Name, adminKeyPath())
+			return checkResult{"admin key 0600 for " + t.Name, merr == nil && mode == "600", pathDetail(mode, merr)}
+		})...)
 
-	for _, t := range c.Tenants {
-		if !t.HasService("postgres") {
-			continue
-		}
-		nets, nerr := dbNetworks("vswarm-db-" + t.Name)
-		want := "vswarm-net-" + t.Name
-		onlyOwn := nerr == nil && len(nets) == 1 && nets[0] == want
-		check("db "+t.Name+" on exactly its network", onlyOwn, dbNetDetail(nets, nerr))
-	}
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			if !t.HasService("postgres") {
+				return checkResult{}
+			}
+			nets, nerr := dbNetworks("vswarm-db-" + t.Name)
+			want := "vswarm-net-" + t.Name
+			onlyOwn := nerr == nil && len(nets) == 1 && nets[0] == want
+			return checkResult{"db " + t.Name + " on exactly its network", onlyOwn, dbNetDetail(nets, nerr)}
+		})...)
 
-	for _, a := range c.Tenants {
+	pw := make([][]checkResult, len(c.Tenants))
+	_ = runParallel(len(c.Tenants), func(i int) error {
+		a := c.Tenants[i]
+		var rs []checkResult
 		for _, b := range c.Tenants {
 			if a.Name == b.Name || !b.HasService("postgres") {
 				continue
 			}
 			reach := tenantReachesDB("vswarm-"+a.Name, "vswarm-db-"+b.Name)
-			check("isolation: "+a.Name+" cannot reach "+b.Name+" db", !reach, "")
+			rs = append(rs, checkResult{
+				name: "isolation: " + a.Name + " cannot reach " + b.Name + " db",
+				pass: !reach,
+			})
 		}
+		pw[i] = rs
+		return nil
+	})
+	for _, rs := range pw {
+		results = append(results, rs...)
+	}
+
+	ok := true
+	for _, r := range results {
+		if r.name == "" {
+			continue
+		}
+		mark := "PASS"
+		if !r.pass {
+			mark, ok = "FAIL", false
+		}
+		fmt.Printf("[%s] %s%s\n", mark, r.name, detailSuffix(r.detail))
 	}
 
 	if !ok {
@@ -102,7 +154,6 @@ func cmdDoctor() error {
 	fmt.Println("doctor: all checks passed")
 	return nil
 }
-
 func anyPublishedPorts() (bool, string) {
 	out, err := dockerx.Output("docker", "ps", "--filter", "name=vswarm-", "--format", "{{.Names}} {{.Ports}}")
 	if err != nil {
