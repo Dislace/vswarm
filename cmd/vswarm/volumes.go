@@ -101,6 +101,13 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 		}
 	}
 
+	if t.HasService("playwright") {
+		env := render.PWEnv(name)
+		if err := os.WriteFile(filepath.Join(stage, ".playwright.env"), []byte(env), 0o600); err != nil {
+			return err
+		}
+	}
+
 	entries, err := os.ReadDir(stage)
 	if err != nil {
 		return err

@@ -23,7 +23,7 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install -g t3@0.0.32-nightly.20260730.955 \
+    npm install -g t3@{{.T3Version}} \
  && npm cache clean --force
 
 COPY vswarm-tooling /usr/local/bin/vswarm-tooling
@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/root/.npm \
     chmod 0755 /usr/local/bin/vswarm-tooling \
  && chmod 0755 /usr/local/bin/vswarm-codex-state-reconcile \
  && chmod 0644 /etc/vswarm-tooling/tools.tsv \
- && vswarm-tooling update all \
+ && vswarm-tooling \
  && npm cache clean --force
 
 RUN install -d -m 0755 /etc/codex \

@@ -39,35 +39,37 @@ type Storage struct {
 }
 
 type Config struct {
-	Domain       string
-	Image        string
-	ImageOverlay string
-	DBImage      string
-	Team         string
-	RepoBase     string
-	Resources    Resources
-	Storage      Storage
-	TokenTTL     string
-	ManageTunnel bool
-	EdgeExternal bool
-	Tenants      []Tenant
+	Domain          string
+	Image           string
+	ImageOverlay    string
+	DBImage         string
+	PlaywrightImage string
+	Team            string
+	RepoBase        string
+	Resources       Resources
+	Storage         Storage
+	TokenTTL        string
+	ManageTunnel    bool
+	EdgeExternal    bool
+	Tenants         []Tenant
 
 	Path string
 }
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
-var knownServices = map[string]bool{"postgres": true}
+var knownServices = map[string]bool{"postgres": true, "playwright": true}
 
 func Default() *Config {
 	return &Config{
-		Image:        "vswarm/workspace:latest",
-		DBImage:      "postgres:18.4",
-		Resources:    Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
-		RepoBase:     "git@github.com:",
-		Storage:      Storage{Driver: "local", Opts: map[string]string{}},
-		TokenTTL:     "30d",
-		ManageTunnel: true,
+		Image:           "vswarm/workspace:latest",
+		DBImage:         "postgres:18.4",
+		PlaywrightImage: "zenika/alpine-chrome:124",
+		Resources:       Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
+		RepoBase:        "git@github.com:",
+		Storage:         Storage{Driver: "local", Opts: map[string]string{}},
+		TokenTTL:        "30d",
+		ManageTunnel:    true,
 	}
 }
 
@@ -104,6 +106,11 @@ func Parse(path string) (*Config, error) {
 			case "db_image":
 				if val != "" {
 					c.DBImage = unquote(val)
+				}
+				section = ""
+			case "playwright_image":
+				if val != "" {
+					c.PlaywrightImage = unquote(val)
 				}
 				section = ""
 			case "team":
@@ -288,6 +295,9 @@ func (c *Config) Save() error {
 	}
 	if c.DBImage != "" {
 		fmt.Fprintf(&b, "db_image: %s\n", c.DBImage)
+	}
+	if c.PlaywrightImage != "" {
+		fmt.Fprintf(&b, "playwright_image: %s\n", c.PlaywrightImage)
 	}
 	if c.Team != "" {
 		fmt.Fprintf(&b, "team: %s\n", c.Team)

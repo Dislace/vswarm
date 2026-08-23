@@ -115,6 +115,16 @@ func cmdDoctor() error {
 			return checkResult{"db " + t.Name + " on exactly its network", onlyOwn, dbNetDetail(nets, nerr)}
 		})...)
 
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			if !t.HasService("playwright") {
+				return checkResult{}
+			}
+			_, err := dockerx.Exec("vswarm-"+t.Name, "curl", "-sS", "-m", "5",
+				"-o", "/dev/null", "http://vswarm-playwright-"+t.Name+":9222/json/version")
+			return checkResult{"playwright cdp reachable for " + t.Name, err == nil, errStr(err)}
+		})...)
+
 	pw := make([][]checkResult, len(c.Tenants))
 	_ = runParallel(len(c.Tenants), func(i int) error {
 		a := c.Tenants[i]

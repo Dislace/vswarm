@@ -73,5 +73,6 @@ jobs:
         run: |
           docker run --rm \
             --entrypoint /usr/local/bin/vswarm-tooling \
-            vswarm/workspace:ci status all | tee /tmp/tooling-status
-          ! grep -Eq 'missing|stale' /tmp/tooling-status
+            vswarm/workspace:ci
+          docker run --rm --entrypoint sh vswarm/workspace:ci -c \
+            't3 --version && claude --version && codex --version && bun --version && go version'

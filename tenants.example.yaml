@@ -20,3 +20,4 @@ tenants:
     repos: [Acme/api, Acme/web]
   - email: alex@example.com
     name: alex
+    services: [playwright]

@@ -10,10 +10,58 @@ mkdir -p "${T3CODE_HOME}" \
   /home/ai-agent/.cache/go/build \
   /home/ai-agent/.cache/pip
 
-exec t3 serve \
-  --mode web \
-  --host 0.0.0.0 \
-  --port 3773 \
-  --base-dir "${T3CODE_HOME}" \
-  --auto-bootstrap-project-from-cwd \
-  /home/ai-agent/repos
+T3_BIN=/usr/local/bin/t3
+child_pid=""
+stopping=0
+
+forward() {
+  stopping=1
+  if [[ -n "${child_pid}" ]]; then
+    kill -TERM "${child_pid}" 2>/dev/null || true
+  fi
+}
+trap forward TERM INT
+
+active_ui_sessions() {
+  local n
+  n="$(ss -Htn state established '( sport = :3773 )' 2>/dev/null \
+    | grep -cv '127\.0\.0\.1:3773.*127\.0\.0\.1:' || true)"
+  echo "${n}"
+}
+
+# Ticker: converge tooling to the mounted manifest; when t3 itself moved and
+# nobody is using the workspace, bounce it so the swap lands. Busy workspaces
+# are left alone and retried next tick.
+(
+  while :; do
+    before="$(readlink -f "${T3_BIN}" 2>/dev/null || true)"
+    vswarm-tooling >/dev/null 2>&1 || true
+    after="$(readlink -f "${T3_BIN}" 2>/dev/null || true)"
+    if [[ -n "${child_pid}" && "${before}" != "${after}" && "$(active_ui_sessions)" -eq 0 ]]; then
+      kill -TERM "${child_pid}" 2>/dev/null || true
+    fi
+    sleep "${VSWARM_TOOLING_TICK:-3600}"
+  done
+) &
+
+while true; do
+  "${T3_BIN}" serve \
+    --mode web \
+    --host 0.0.0.0 \
+    --port 3773 \
+    --base-dir "${T3CODE_HOME}" \
+    --auto-bootstrap-project-from-cwd \
+    /home/ai-agent/repos &
+  child_pid=$!
+  set +e
+  wait "${child_pid}"
+  status=$?
+  set -e
+  child_pid=""
+  if [[ "${stopping}" -eq 1 ]]; then
+    exit "${status}"
+  fi
+  # Restarting picks up whatever /usr/local/bin/t3 points at now; brief pause
+  # so a crash loop cannot spin.
+  sleep 2
+done
