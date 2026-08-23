@@ -132,13 +132,30 @@ func tenantLs() error {
 	if err != nil {
 		return err
 	}
+	status := tenantStatuses()
 	fmt.Printf("%-16s %-30s %-12s\n", "NAME", "EMAIL", "STATUS")
 	for _, t := range c.Tenants {
-		status := "not-created"
-		if out, err := dockerx.Output("docker", "inspect", "-f", "{{.State.Status}}", "vswarm-"+t.Name); err == nil {
-			status = strings.TrimSpace(out)
+		st, ok := status["vswarm-"+t.Name]
+		if !ok {
+			st = "not-created"
 		}
-		fmt.Printf("%-16s %-30s %-12s\n", t.Name, t.Email, status)
+		fmt.Printf("%-16s %-30s %-12s\n", t.Name, t.Email, st)
 	}
 	return nil
+}
+
+func tenantStatuses() map[string]string {
+	out := map[string]string{}
+	raw, err := dockerx.Output("docker", "ps", "-a", "--filter", "name=vswarm-",
+		"--format", "{{.Names}} {{.State}}")
+	if err != nil {
+		return out
+	}
+	for _, ln := range strings.Split(raw, "\n") {
+		name, state, ok := strings.Cut(strings.TrimSpace(ln), " ")
+		if ok && name != "" {
+			out[name] = state
+		}
+	}
+	return out
 }
