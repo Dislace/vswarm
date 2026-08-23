@@ -235,9 +235,11 @@ names are rejected at parse time. For each opted-in tenant, `vswarm up` runs:
 
 - a container `vswarm-db-<name>` joined **only** to that tenant's network
   (`vswarm-net-<name>`), image from the top-level `db_image:` key (default
-  `timescale/timescaledb:2.28.2-pg17`), memory-capped at 1g;
-- a named volume `vswarm-dbdata-<name>` for `/var/lib/postgresql/data`, so the
-  database survives container recreates.
+  `postgres:18.4`), memory-capped at 1g;
+- a named volume `vswarm-dbdata-<name>` mounted at `/var/lib/postgresql`, so the
+  database survives container recreates. PostgreSQL 18+ images keep their data
+  cluster under `<major>/docker` inside that mount; `db_image:` overrides must
+  be PostgreSQL 18+ compatible with this layout.
 
 `vswarm` mints a random postgres password per tenant at render time, persists it
 at `config/<name>/pg.password` (mode `0600`) and delivers the connection
