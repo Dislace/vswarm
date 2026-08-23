@@ -3,7 +3,7 @@ domain: t3code.example.com
 
 image: vswarm/workspace:latest
 
-db_image: timescale/timescaledb:2.28.2-pg17
+db_image: postgres:18.4
 
 resources:
   cpus: "2.0"

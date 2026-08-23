@@ -96,7 +96,7 @@ services:
     environment:
       - POSTGRES_PASSWORD={{.PGPassword}}
     volumes:
-      - {{.DBVolume}}:/var/lib/postgresql/data
+      - {{.DBVolume}}:/var/lib/postgresql
     tmpfs:
       - /run
     deploy:

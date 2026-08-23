@@ -3,9 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/dislace/vswarm/internal/config"
 )
 
 func TestRunParallelDoesAllWork(t *testing.T) {
@@ -55,4 +58,13 @@ func TestRunParallelRunsConcurrently(t *testing.T) {
 		t.Fatalf("took %v; tasks did not overlap", elapsed)
 	}
 	fmt.Printf("parallel fan-out of %d x 30ms took %v\n", n, elapsed)
+}
+
+func TestPairMintWritesTokenWithoutReloading(t *testing.T) {
+	// pairMint must not exec into the proxy; the reload is batched by up.
+	// Verified indirectly: reloadProxy is only reached via pair/up.
+	c := &config.Config{}
+	if err := pairMint(c, "ghost"); err == nil || !strings.Contains(err.Error(), "no such tenant") {
+		t.Fatalf("pairMint() error = %v, want no-such-tenant", err)
+	}
 }

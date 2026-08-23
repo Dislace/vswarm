@@ -62,7 +62,7 @@ var knownServices = map[string]bool{"postgres": true}
 func Default() *Config {
 	return &Config{
 		Image:        "vswarm/workspace:latest",
-		DBImage:      "timescale/timescaledb:2.28.2-pg17",
+		DBImage:      "postgres:18.4",
 		Resources:    Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
 		RepoBase:     "git@github.com:",
 		Storage:      Storage{Driver: "local", Opts: map[string]string{}},

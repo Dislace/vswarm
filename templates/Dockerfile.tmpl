@@ -22,14 +22,16 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g t3@0.0.32-nightly.20260730.955 \
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g t3@0.0.32-nightly.20260730.955 \
  && npm cache clean --force
 
 COPY vswarm-tooling /usr/local/bin/vswarm-tooling
 COPY vswarm-codex-state-reconcile.ts /usr/local/lib/vswarm/
 COPY vswarm-codex-state-reconcile /usr/local/bin/vswarm-codex-state-reconcile
 COPY tools.tsv /etc/vswarm-tooling/tools.tsv
-RUN chmod 0755 /usr/local/bin/vswarm-tooling \
+RUN --mount=type=cache,target=/root/.npm \
+    chmod 0755 /usr/local/bin/vswarm-tooling \
  && chmod 0755 /usr/local/bin/vswarm-codex-state-reconcile \
  && chmod 0644 /etc/vswarm-tooling/tools.tsv \
  && vswarm-tooling update all \

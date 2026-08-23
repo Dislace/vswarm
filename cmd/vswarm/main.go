@@ -157,12 +157,17 @@ func cmdUp() error {
 		if err := provisionTenant(c, t.Name, ""); err != nil {
 			return fmt.Errorf("provision %s: %w", t.Name, err)
 		}
-		if err := pair(c, t.Name); err != nil {
+		if err := pairMint(c, t.Name); err != nil {
 			return fmt.Errorf("pair %s: %w", t.Name, err)
 		}
 		return nil
 	}); err != nil {
 		return err
+	}
+	if len(c.Tenants) > 0 {
+		if err := reloadProxy(); err != nil {
+			return err
+		}
 	}
 	fmt.Println("up: stack running, all tenants provisioned")
 	return nil
@@ -226,6 +231,25 @@ func cmdPair(args []string) error {
 }
 
 func pair(c *config.Config, name string) error {
+	if err := pairMint(c, name); err != nil {
+		return err
+	}
+	if err := reloadProxy(); err != nil {
+		return err
+	}
+	fmt.Printf("paired %s (token injected, proxy reloaded)\n", name)
+	return nil
+}
+
+// reloadProxy is separate from minting so `up` can mint every tenant's token
+// concurrently and reload angie once; concurrent reloads race and each one
+// re-reads the same include glob anyway.
+func reloadProxy() error {
+	_, err := dockerx.Exec(proxyContainer, "angie", "-s", "reload")
+	return err
+}
+
+func pairMint(c *config.Config, name string) error {
 	t, ok := c.Tenant(name)
 	if !ok {
 		return fmt.Errorf("no such tenant %q", name)
@@ -244,14 +268,7 @@ func pair(c *config.Config, name string) error {
 	}
 	line := fmt.Sprintf("%q %q;\n", t.Email, token)
 	p := filepath.Join(render.GeneratedDir, "angie", "tenants", name+".token")
-	if err := os.WriteFile(p, []byte(line), 0o600); err != nil {
-		return err
-	}
-	if _, err := dockerx.Exec(proxyContainer, "angie", "-s", "reload"); err != nil {
-		return err
-	}
-	fmt.Printf("paired %s (token injected, proxy reloaded)\n", name)
-	return nil
+	return os.WriteFile(p, []byte(line), 0o600)
 }
 
 // t3 keeps its auth sessions in SQLite under t3BaseDir, and a tenant with a
