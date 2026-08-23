@@ -52,13 +52,32 @@ func TestRenderProducesIsolatedTenantConfiguration(t *testing.T) {
 	assertFileEquals(
 		t,
 		filepath.Join(GeneratedDir, "angie", "tenants", "alice.upstream"),
-		"\"alice@example.com\" \"vswarm-alice:3773\";\n",
+		"\"alice@example.com\" \"vswarm_alice\";\n",
 	)
 	assertFileEquals(
 		t,
 		filepath.Join(GeneratedDir, "angie", "tenants", "bob.upstream"),
-		"\"bob@example.com\" \"vswarm-bob:3773\";\n",
+		"\"bob@example.com\" \"vswarm_bob\";\n",
 	)
+
+	angie, err := os.ReadFile(filepath.Join(GeneratedDir, "angie", "angie.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	angieConf := string(angie)
+	for _, want := range []string{
+		"upstream vswarm_alice {",
+		"server vswarm-alice:3773 resolve;",
+		"keepalive 16;",
+		"''      \"\";",
+	} {
+		if !strings.Contains(angieConf, want) {
+			t.Errorf("generated angie.conf missing %q", want)
+		}
+	}
+	if strings.Contains(angieConf, "'      close;") {
+		t.Error("angie.conf still forces Connection: close on non-websocket requests")
+	}
 
 	entrypoint := filepath.Join(GeneratedDir, "image", "entrypoint.sh")
 	info, err := os.Stat(entrypoint)

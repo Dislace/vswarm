@@ -10,6 +10,13 @@ events {
 http {
     resolver 127.0.0.11 valid=10s ipv6=off;
 
+{{range .Tenants}}
+    upstream vswarm_{{.Name}} {
+        zone vswarm_{{.Name}} 64k;
+        server {{.Container}}:{{$.T3Port}} resolve;
+        keepalive 16;
+    }
+{{end}}
     map $http_cf_access_authenticated_user_email $vswarm_upstream {
         default "";
         include /etc/angie/tenants/*.upstream;
@@ -22,7 +29,7 @@ http {
 
     map $http_upgrade $vswarm_connection {
         default upgrade;
-        ''      close;
+        ''      "";
     }
 
     log_format vswarm '$remote_addr "$http_cf_access_authenticated_user_email" '

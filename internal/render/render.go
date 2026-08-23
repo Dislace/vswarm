@@ -182,7 +182,7 @@ func Render(c *config.Config) error {
 	want := map[string]bool{}
 	for _, t := range v.Tenants {
 		want[t.Name] = true
-		line := fmt.Sprintf("%q %q;\n", t.Email, t.Container+":"+T3Port)
+		line := fmt.Sprintf("%q %q;\n", t.Email, "vswarm_"+t.Name)
 		p := filepath.Join(GeneratedDir, "angie", "tenants", t.Name+".upstream")
 		if err := os.WriteFile(p, []byte(line), 0o644); err != nil {
 			return err
