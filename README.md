@@ -4,22 +4,19 @@ VibeSwarm provides isolated browser-based development workspaces for trusted tea
 
 ## Workspace tooling
 
-The stock workspace includes Claude Code, Codex, Bun, and Go. Each CLI is
-installed as a side-by-side release and selected through an atomic symlink, so
-it can be updated without rebuilding the image, recreating the container, or
-interrupting a CLI process that is already running:
+The stock workspace includes t3, Claude Code, Codex, Bun, and Go. Tool versions
+are pinned in one place — the manifest at `templates/tools.tsv.tmpl` — which is
+rendered into `generated/image/tools.tsv` and bind-mounted read-only into every
+tenant. There is no update command: a background reconciler in each workspace
+converges to the mounted manifest (on shell open and periodically), installing
+side-by-side releases and flipping atomic symlinks, so CLIs update without
+rebuilding the image or recreating the container. Changing a version is a
+one-line PR; rollback is reverting it.
 
-```bash
-vswarm-tooling status all
-vswarm-tooling update codex
-vswarm-tooling update claude --latest
-vswarm-tooling rollback claude
-```
-
-Normal updates use the reviewed versions baked into the workspace manifest.
-An explicit `--latest` selection is recorded in the persistent workspace home;
-normal reconciliation will not silently downgrade it. T3 remains image-managed
-because its running server must restart to load a new release.
+Devs who want a different version than the fleet baseline just use the
+provider's own flow (`claude update`, `bun upgrade`, `npm i -g …`): user-local
+installs live ahead of `/usr/local/bin` on PATH and shadow the baseline until
+removed.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md#workspace-tooling) for the manifest format,
-custom tool catalogs, update guarantees, and container-recreation behavior.
+reconciliation triggers, and guarantees.

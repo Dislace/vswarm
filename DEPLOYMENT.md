@@ -169,35 +169,37 @@ same two-step contract.
 
 ### Workspace tooling
 
-The stock image uses `vswarm-tooling` for Claude Code, Codex, Bun, and Go.
-Approved releases are installed side by side under `/opt/vswarm-tooling` and
-selected through links in `/usr/local/bin`. Updating a tool verifies its
-reported version before atomically switching the link. Old release trees are
-kept while a process still refers to them; otherwise the current, previous,
-and approved releases are retained.
+The stock image manages t3, Claude Code, Codex, Bun, and Go with
+`vswarm-tooling`. The manifest (`tools.tsv`, rendered from
+`templates/tools.tsv.tmpl` and bind-mounted read-only into every tenant at
+`/etc/vswarm-tooling/tools.tsv`) is the single source of truth. Releases are
+installed side by side under `/opt/vswarm-tooling` and selected through links
+in `/usr/local/bin`; switching a link verifies the staged CLI's reported
+version first and never touches a process already running from an old release.
 
-Tenant commands:
+There are no user-facing commands: `vswarm-tooling` is a reconciler that takes
+no arguments. It runs when a workspace boots, whenever an interactive shell
+opens (fire-and-forget), and on a periodic tick inside the entrypoint
+(`VSWARM_TOOLING_TICK`, default 3600s). Concurrent invocations serialize on a
+`flock`; a second one exits silently rather than erroring.
 
-```bash
-vswarm-tooling status all
-vswarm-tooling update claude
-vswarm-tooling update codex --latest
-vswarm-tooling update all --latest
-vswarm-tooling rollback codex
-```
+Version flow: edit the pin in `templates/tools.tsv.tmpl`, merge, done — the
+next reconcile in each workspace installs the release and flips the symlink.
+t3 swaps the same way; its supervisor restarts the server onto the new binary
+at the next tick **only when no UI session is active** (busy workspaces are
+left untouched and retried). Rollback is reverting the manifest change; the
+reconciler re-downloads and re-flips.
 
-The default paths require root, so the command re-executes through the
-workspace's passwordless `sudo` grant. Updates are serialized with `flock`.
-Npm packages use the registry's package-integrity verification and are checked
-again by executing the staged CLI. Go archives are matched against the
-filename and SHA-256 published by `go.dev` before extraction.
+Only releases that are pinned or still referenced by a running process are
+kept; everything else is pruned. Npm packages use the registry's
+package-integrity verification and are checked again by executing the staged
+CLI. Go archives are matched against the filename and SHA-256 published by
+`go.dev` before extraction. The default paths require root, so reconciliation
+re-executes through the workspace's passwordless `sudo`.
 
-`--latest` records only the selected version in
-`~/.config/vswarm-tooling/overrides.env`; the home directory is persistent but
-installed releases live in the container filesystem. After recreating a
-workspace, run `vswarm-tooling update all` to restore any selected newer
-releases. An operator reconciliation can safely run the same command: approved
-tools remain pinned and newer tenant selections are preserved.
+Devs can run any provider-native update (`claude update`, `bun upgrade`,
+`npm i -g …`) freely: home-directory installs live ahead of `/usr/local/bin`
+on PATH and shadow the fleet baseline until removed.
 
 The root-owned manifest is `/etc/vswarm-tooling/tools.tsv`. Each non-comment
 line has six pipe-delimited fields:

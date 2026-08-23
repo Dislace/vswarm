@@ -2,15 +2,16 @@
 
 set -euo pipefail
 
+# Declarative workspace-tooling reconciler. The mounted manifest
+# (/etc/vswarm-tooling/tools.tsv) is the only source of truth: bare invocation
+# converges every declared tool to its pinned release and exits. There are no
+# commands, no per-workspace overrides, and no channels — a version changes by
+# changing the manifest (in git), and rollback is reverting that change.
+# Undeclared binaries are never touched.
+
 tooling_root="${VSWARM_TOOLING_ROOT:-/opt/vswarm-tooling}"
 manifest="${VSWARM_TOOLING_MANIFEST:-/etc/vswarm-tooling/tools.tsv}"
 bin_dir="${VSWARM_TOOLING_BIN_DIR:-/usr/local/bin}"
-workspace_home="${VSWARM_TOOLING_HOME:-/home/ai-agent}"
-override_file="${workspace_home}/.config/vswarm-tooling/overrides.env"
-release_root="${tooling_root}/releases"
-lock_file="${tooling_root}/update.lock"
-stage_dir=""
-original_args=("$@")
 
 declare -a tools=()
 declare -A tool_source=()
@@ -19,22 +20,9 @@ declare -A tool_binary=()
 declare -A tool_approved=()
 declare -A tool_extras=()
 declare -A claimed_binary=()
-declare -A requested_versions=()
-
-usage() {
-  cat <<'EOF'
-Usage:
-  vswarm-tooling status [tool|all]
-  vswarm-tooling update [tool|all]
-  vswarm-tooling update <tool|all> --latest
-  vswarm-tooling rollback [tool|all]
-
-Normal updates select the approved versions in /etc/vswarm-tooling/tools.tsv.
-`--latest` selects the newest upstream release and persists that choice in the
-workspace home. `rollback` clears the selection and returns to the approved
-version. Run `status all` to list the tools declared by the active manifest.
-EOF
-}
+stage_dir=""
+release_root="${tooling_root}/releases"
+lock_file="${tooling_root}/update.lock"
 
 fail() {
   echo "vswarm-tooling: $*" >&2
@@ -112,97 +100,6 @@ load_manifest() {
   [[ "${#tools[@]}" -gt 0 ]] || fail "${manifest}: no tools declared"
 }
 
-validate_target() {
-  local target="$1" tool
-  [[ "${target}" == all ]] && return
-  for tool in "${tools[@]}"; do
-    [[ "${target}" == "${tool}" ]] && return
-  done
-  fail "unknown tool '${target}'"
-}
-
-validate_override_file() {
-  local raw name version extra line_no=0
-  [[ -e "${override_file}" ]] || return 0
-  [[ -r "${override_file}" ]] || fail "override file is not readable: ${override_file}"
-  while IFS= read -r raw || [[ -n "${raw}" ]]; do
-    line_no=$((line_no + 1))
-    [[ -z "${raw}" ]] && continue
-    IFS='=' read -r name version extra <<<"${raw}"
-    [[ -z "${extra:-}" && -n "${tool_source[${name:-}]:-}" ]] \
-      || fail "${override_file}:${line_no}: invalid or unknown tool override"
-    valid_version "${version:-}" \
-      || fail "${override_file}:${line_no}: invalid version '${version:-}'"
-  done <"${override_file}"
-}
-
-override_version() {
-  local wanted="$1" raw name version
-  [[ -r "${override_file}" ]] || return 0
-  while IFS= read -r raw || [[ -n "${raw}" ]]; do
-    IFS='=' read -r name version <<<"${raw}"
-    if [[ "${name}" == "${wanted}" ]]; then
-      printf '%s\n' "${version}"
-      return
-    fi
-  done <"${override_file}"
-}
-
-set_override() {
-  local wanted="$1" selected="$2" directory pending raw name version owner=""
-  directory="$(dirname "${override_file}")"
-  pending="${override_file}.new.$$"
-  mkdir -p "${directory}"
-  : >"${pending}"
-  if [[ -r "${override_file}" ]]; then
-    while IFS= read -r raw || [[ -n "${raw}" ]]; do
-      IFS='=' read -r name version <<<"${raw}"
-      [[ "${name}" == "${wanted}" ]] || printf '%s\n' "${raw}" >>"${pending}"
-    done <"${override_file}"
-  fi
-  if [[ -n "${selected}" ]]; then
-    printf '%s=%s\n' "${wanted}" "${selected}" >>"${pending}"
-  fi
-  chmod 0644 "${pending}"
-  if [[ "${EUID}" -eq 0 && -d "${workspace_home}" ]]; then
-    owner="$(stat -c '%u:%g' "${workspace_home}")"
-    chown "${owner}" "${directory}" "${pending}"
-  fi
-  mv -Tf "${pending}" "${override_file}"
-}
-
-clear_caught_up_overrides() {
-  local tool override approved
-  for tool in "${tools[@]}"; do
-    override="$(override_version "${tool}")"
-    approved="${tool_approved[${tool}]}"
-    if [[ -n "${override}" ]] && ! version_gt "${override}" "${approved}"; then
-      set_override "${tool}" ""
-    fi
-  done
-}
-
-version_gt() {
-  local left="$1" right="$2"
-  [[ "${left}" != "${right}" ]] \
-    && [[ "$(printf '%s\n%s\n' "${left}" "${right}" | sort -V | tail -1)" == "${left}" ]]
-}
-
-desired_version() {
-  local tool="$1" approved override
-  if [[ -n "${requested_versions[${tool}]:-}" ]]; then
-    printf '%s\n' "${requested_versions[${tool}]}"
-    return
-  fi
-  approved="${tool_approved[${tool}]}"
-  override="$(override_version "${tool}")"
-  if [[ -n "${override}" ]] && version_gt "${override}" "${approved}"; then
-    printf '%s\n' "${override}"
-  else
-    printf '%s\n' "${approved}"
-  fi
-}
-
 remove_release_tree() {
   local path="$1"
   case "${path}" in
@@ -229,79 +126,13 @@ atomic_link() {
 }
 
 release_version_from_link() {
-  local tool="$1" binary resolved prefix remainder
-  binary="${tool_binary[${tool}]}"
-  resolved="$(readlink -f "${bin_dir}/${binary}" 2>/dev/null || true)"
+  local tool="$1" resolved prefix remainder
+  resolved="$(readlink -f "${bin_dir}/${tool_binary[${tool}]}" 2>/dev/null || true)"
   prefix="${release_root}/${tool}/"
   if [[ "${resolved}" == "${prefix}"* ]]; then
     remainder="${resolved#"${prefix}"}"
     printf '%s\n' "${remainder%%/*}"
   fi
-}
-
-reported_version() {
-  local tool="$1" binary output=""
-  binary="${tool_binary[${tool}]}"
-  [[ -x "${bin_dir}/${binary}" ]] || return 0
-  if [[ "${tool_source[${tool}]}" == go ]]; then
-    output="$("${bin_dir}/${binary}" version 2>/dev/null || true)"
-  else
-    output="$("${bin_dir}/${binary}" --version 2>/dev/null || true)"
-  fi
-  grep -oE '[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?' <<<"${output}" \
-    | head -1 || true
-}
-
-current_version() {
-  local version
-  version="$(release_version_from_link "$1")"
-  if [[ -n "${version}" ]]; then
-    printf '%s\n' "${version}"
-  else
-    reported_version "$1"
-  fi
-}
-
-status_one() {
-  local tool="$1" current desired approved override channel state
-  current="$(current_version "${tool}")"
-  desired="$(desired_version "${tool}")"
-  approved="${tool_approved[${tool}]}"
-  override="$(override_version "${tool}")"
-  channel=approved
-  if [[ -n "${override}" ]] && version_gt "${override}" "${approved}"; then
-    channel=latest
-  fi
-  state=stale
-  if [[ "${current}" == "${desired}" ]]; then
-    state=current
-    [[ "${channel}" == latest ]] && state=ahead
-  fi
-  [[ -n "${current}" ]] || current=missing
-  printf '%-10s installed=%-20s approved=%-20s selected=%-20s channel=%-8s %s\n' \
-    "${tool}" "${current}" "${approved}" "${desired}" "${channel}" "${state}"
-}
-
-resolve_latest() {
-  local tool="$1" source locator version=""
-  source="${tool_source[${tool}]}"
-  locator="${tool_locator[${tool}]}"
-  case "${source}" in
-    npm)
-      version="$(npm view "${locator}" version)"
-      ;;
-    go)
-      version="$(
-        curl -fsSL 'https://go.dev/dl/?mode=json' \
-          | python3 -c 'import json,sys
-releases=json.load(sys.stdin)
-stable=next((r["version"] for r in releases if r.get("stable")), "")
-print(stable.removeprefix("go"))'
-      )"
-      ;;
-  esac
-  valid_version "${version}" || fail "could not resolve latest ${tool} version"
-  printf '%s\n' "${version}"
 }
 
 verify_release() {
@@ -352,9 +183,6 @@ EOF
       cat >"${launcher}" <<EOF
 #!/bin/sh
 export NPM_CONFIG_PREFIX="${release}"
-if [ "\${1:-}" = update ]; then
-  exec "${bin_dir}/vswarm-tooling" update codex --latest
-fi
 exec "${release}/bin/${binary}" "\$@"
 EOF
       ;;
@@ -364,7 +192,7 @@ EOF
 
 install_npm_tool() {
   local tool="$1" version parent release command_path
-  version="$(desired_version "${tool}")"
+  version="${tool_approved[${tool}]}"
   parent="${release_root}/${tool}"
   release="${parent}/${version}"
   command_path="${release}/bin/${tool_binary[${tool}]}"
@@ -416,7 +244,7 @@ raise SystemExit(1)' "${version}" "${arch}"
 install_go_tool() {
   local tool="$1" version parent release arch filename checksum archive
   local -a metadata=()
-  version="$(desired_version "${tool}")"
+  version="${tool_approved[${tool}]}"
   parent="${release_root}/${tool}"
   release="${parent}/${version}"
   if [[ ! -x "${release}/bin/${tool_binary[${tool}]}" ]]; then
@@ -481,99 +309,37 @@ prune_releases() {
   done
 }
 
-update_one() {
+converge_one() {
   local tool="$1" before after
-  before="$(current_version "${tool}")"
+  before="$(release_version_from_link "${tool}")"
   case "${tool_source[${tool}]}" in
     npm) install_npm_tool "${tool}" ;;
     go) install_go_tool "${tool}" ;;
   esac
-  after="$(current_version "${tool}")"
+  after="$(release_version_from_link "${tool}")"
   prune_releases "${tool}" "${after}" "${before}"
-  if [[ "${before}" == "${after}" ]]; then
-    echo "${tool}: already ${after}"
-  else
+  if [[ "${before}" != "${after}" ]]; then
     echo "${tool}: ${before:-missing} -> ${after}"
   fi
 }
 
-case "${1:-}" in
-  -h|--help|help) usage; exit 0 ;;
-  '') usage; exit 2 ;;
-esac
+[[ "$#" -eq 0 ]] || fail "vswarm-tooling takes no arguments; it converges to ${manifest}"
 
 load_manifest
-validate_override_file
-
-[[ "$#" -le 3 ]] || fail "too many arguments"
-command_name="${1:-}"
-target="${2:-all}"
-option="${3:-}"
-case "${command_name}" in
-  status|update|rollback) ;;
-  *) fail "unknown command '${command_name}'" ;;
-esac
-validate_target "${target}"
-case "${option}" in
-  '') ;;
-  --latest)
-    [[ "${command_name}" == update ]] || fail "--latest is valid only with update"
-    ;;
-  *) fail "unknown option '${option}'" ;;
-esac
 
 if [[ "${EUID}" -ne 0 && "${tooling_root}" == /opt/vswarm-tooling ]]; then
-  exec sudo "${0}" "${original_args[@]}"
+  exec sudo -n "${0}"
 fi
 
-for path in "${tooling_root}" "${bin_dir}" "${workspace_home}"; do
+for path in "${tooling_root}" "${bin_dir}"; do
   [[ "${path}" == /* && "${path}" != / ]] || fail "unsafe path ${path}"
 done
 
-selected_tools=("${tools[@]}")
-if [[ "${target}" != all ]]; then
-  selected_tools=("${target}")
-fi
-
-if [[ "${command_name}" == status ]]; then
-  for tool in "${selected_tools[@]}"; do status_one "${tool}"; done
-  exit 0
-fi
-
 mkdir -p "${tooling_root}" "${release_root}" "${bin_dir}"
 exec 9>"${lock_file}"
-flock -n 9 || fail "another update is already running"
+flock -n 9 || exit 0
 trap cleanup EXIT INT TERM
-clear_caught_up_overrides
 
-if [[ "${command_name}" == rollback ]]; then
-  for tool in "${selected_tools[@]}"; do set_override "${tool}" ""; done
-fi
-
-if [[ "${option}" == --latest ]]; then
-  for tool in "${selected_tools[@]}"; do
-    latest="$(resolve_latest "${tool}")"
-    approved="${tool_approved[${tool}]}"
-    if version_gt "${latest}" "${approved}"; then
-      requested_versions["${tool}"]="${latest}"
-    else
-      requested_versions["${tool}"]="${approved}"
-    fi
-  done
-fi
-
-for tool in "${selected_tools[@]}"; do
-  update_one "${tool}"
-  if [[ "${option}" == --latest ]]; then
-    if version_gt "${requested_versions[${tool}]}" "${tool_approved[${tool}]}"; then
-      set_override "${tool}" "${requested_versions[${tool}]}"
-    else
-      set_override "${tool}" ""
-    fi
-  fi
+for tool in "${tools[@]}"; do
+  converge_one "${tool}"
 done
-
-if [[ "${option}" == --latest ]]; then
-  requested_versions=()
-  for tool in "${selected_tools[@]}"; do status_one "${tool}"; done
-fi

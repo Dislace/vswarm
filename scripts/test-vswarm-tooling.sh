@@ -56,14 +56,6 @@ go_checksum="$(sha256sum "${go_fixture}" | awk '{print $1}')"
 cat >"${test_root}/fake-bin/npm" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == view ]]; then
-  case "${2:-}" in
-    @anthropic-ai/claude-code) echo 9.0.0 ;;
-    @openai/codex) echo 3.4.0 ;;
-    *) exit 1 ;;
-  esac
-  exit 0
-fi
 prefix=""
 spec=""
 while [[ "$#" -gt 0 ]]; do
@@ -102,9 +94,6 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 case "${url}" in
-  'https://go.dev/dl/?mode=json')
-    printf '[{"version":"go1.26.5","stable":true,"files":[]}]\n'
-    ;;
   'https://go.dev/dl/?mode=json&include=all')
     printf '[{"version":"go1.26.5","stable":true,"files":[{"filename":"go1.26.5.linux-%s.tar.gz","os":"linux","arch":"%s","kind":"archive","sha256":"%s"}]}]\n' "${FAKE_GO_ARCH}" "${FAKE_GO_ARCH}" "${FAKE_GO_CHECKSUM}"
     ;;
@@ -128,54 +117,71 @@ export VSWARM_TOOLING_BIN_DIR="${test_root}/bin"
 export VSWARM_TOOLING_HOME="${test_root}/home"
 ln -s "${updater}" "${test_root}/bin/vswarm-tooling"
 
-"${updater}" status all >"${test_root}/missing-status"
-grep -E '^claude +installed=0\.0\.1 .* stale$' "${test_root}/missing-status"
-grep -E '^codex +installed=missing .* stale$' "${test_root}/missing-status"
+# The reconciler takes no arguments.
+if "${updater}" update all >/dev/null 2>&1; then
+  echo "verbs must be gone: 'update' was accepted" >&2
+  exit 1
+fi
+if "${updater}" status all >/dev/null 2>&1; then
+  echo "verbs must be gone: 'status' was accepted" >&2
+  exit 1
+fi
 
-"${updater}" update all
+# Converge from a stale release and missing tools.
+"${updater}" >"${test_root}/converge-out"
+grep -F 'codex: missing -> 3.4.0' "${test_root}/converge-out"
 test "$(readlink "${test_root}/bin/claude")" = \
   "${test_root}/state/releases/claude/2.1.0/vswarm-bin/claude"
-test -x "${test_root}/state/releases/claude/0.0.1/bin/claude"
 test "$(env -u DISABLE_AUTOUPDATER "${test_root}/bin/claude" --version)" = 'claude 2.1.0'
 grep -q 'DISABLE_AUTOUPDATER=1' "${test_root}/state/releases/claude/2.1.0/vswarm-bin/claude"
 grep -q "NPM_CONFIG_PREFIX=\"${test_root}/state/releases/codex/3.4.0\"" \
   "${test_root}/state/releases/codex/3.4.0/vswarm-bin/codex"
 "${test_root}/bin/codex" --version | grep -F '3.4.0'
-"${test_root}/bin/codex" update | grep -F 'codex: already 3.4.0'
 "${test_root}/bin/go" version | grep -F 'go1.26.5'
 "${test_root}/bin/gofmt" | grep -F 'gofmt fixture'
+# The stale 0.0.1 release stays while its process is alive.
+test -x "${test_root}/state/releases/claude/0.0.1/bin/claude"
 
+# Idempotent: a second run performs no version transitions (retention notices
+# about in-use superseded releases are allowed).
+second="$("${updater}")"
+! grep -F -- ' -> ' <<<"${second}"
+
+# A held lock makes a concurrent reconcile a silent no-op, not an error.
 exec 8>"${test_root}/state/update.lock"
 flock -n 8
-if "${updater}" update codex; then
-  echo "concurrent update unexpectedly acquired the lock" >&2
-  exit 1
-fi
+"${updater}"
+test "$(readlink "${test_root}/bin/claude")" = \
+  "${test_root}/state/releases/claude/2.1.0/vswarm-bin/claude"
 flock -u 8
 
-"${updater}" update claude --latest
-grep -qx 'claude=9.0.0' "${test_root}/home/.config/vswarm-tooling/overrides.env"
-"${updater}" status claude | grep -E 'selected=9\.0\.0 .*channel=latest +ahead$'
+# Undeclared binaries are never touched.
+printf '#!/usr/bin/env bash\n' >"${test_root}/bin/some-undeclared"
+chmod 0755 "${test_root}/bin/some-undeclared"
+"${updater}" >/dev/null
+test -x "${test_root}/bin/some-undeclared"
 
-"${updater}" update all
-"${updater}" status all >"${test_root}/selected-status"
-grep -E '^claude .* installed=9\.0\.0 .* ahead$' "${test_root}/selected-status"
-test "$(grep -c ' current$' "${test_root}/selected-status")" -eq 2
+# Manifest bump: converge flips the link; the superseded in-use release is
+# retained until its last process dies, then pruned on the next pass.
+sed -i 's/|claude|2\.1\.0|/|claude|2.2.0|/' "${manifest}"
+"${updater}" | grep -F 'claude: 2.1.0 -> 2.2.0'
+test "$(readlink "${test_root}/bin/claude")" = \
+  "${test_root}/state/releases/claude/2.2.0/vswarm-bin/claude"
 
 kill "${old_claude_pid}"
 wait "${old_claude_pid}" 2>/dev/null || true
 old_claude_pid=""
-"${updater}" rollback claude
-test "$(readlink "${test_root}/bin/claude")" = \
-  "${test_root}/state/releases/claude/2.1.0/vswarm-bin/claude"
-test ! -s "${test_root}/home/.config/vswarm-tooling/overrides.env"
+"${updater}" >/dev/null
+# Nothing but the pinned release survives once nothing in-use holds older ones;
+# a rollback re-downloads by reverting the manifest.
 test ! -e "${test_root}/state/releases/claude/0.0.1"
-test -x "${test_root}/state/releases/claude/9.0.0/bin/claude"
+test ! -e "${test_root}/state/releases/claude/2.1.0"
+test -x "${test_root}/state/releases/claude/2.2.0/bin/claude"
 
 marker="${test_root}/manifest-executed"
 # shellcheck disable=SC2016
 printf 'oops|npm|pkg|tool|1.2.3|$(touch %s)\n' "${marker}" >"${test_root}/malicious.tsv"
-if VSWARM_TOOLING_MANIFEST="${test_root}/malicious.tsv" "${updater}" status all; then
+if VSWARM_TOOLING_MANIFEST="${test_root}/malicious.tsv" "${updater}"; then
   echo "malicious manifest unexpectedly passed validation" >&2
   exit 1
 fi
@@ -185,10 +191,10 @@ find "${test_root}/state/releases/go" -depth -delete
 unlink "${test_root}/bin/go"
 unlink "${test_root}/bin/gofmt"
 export FAKE_GO_CHECKSUM=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-if "${updater}" update go; then
-  echo "Go update unexpectedly accepted a mismatched checksum" >&2
+if "${updater}"; then
+  echo "reconcile unexpectedly accepted a mismatched Go checksum" >&2
   exit 1
 fi
 test ! -e "${test_root}/bin/go"
 
-echo "vswarm-tooling lifecycle, strict manifest, and checksum tests passed"
+echo "vswarm-tooling reconciliation, strict manifest, and checksum tests passed"

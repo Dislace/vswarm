@@ -23,6 +23,10 @@ const (
 	PGPort       = "5432"
 	PWPort       = "9222"
 
+	// T3Version pins the workspace's t3 release in both the image bootstrap
+	// and the tooling manifest; the reconciler takes over from there.
+	T3Version = "0.0.32-nightly.20260730.955"
+
 	DBMemory = "1g"
 
 	HomeDir  = "/home/ai-agent"
@@ -74,6 +78,7 @@ type view struct {
 	ProxyIP         string
 	ProxyPort       string
 	T3Port          string
+	T3Version       string
 	ManageTunnel    bool
 	EdgeExternal    bool
 	AnyPostgres     bool
@@ -99,6 +104,7 @@ func buildView(c *config.Config) view {
 		DBMemory:        DBMemory,
 		PlaywrightImage: c.PlaywrightImage,
 		PWPort:          PWPort,
+		T3Version:       T3Version,
 		Team:            team,
 		CPUs:            c.Resources.CPUs,
 		Memory:          c.Resources.Memory,
