@@ -98,13 +98,21 @@ func tenantRm(args []string) error {
 	if err != nil {
 		return err
 	}
-	if !c.RemoveTenant(name) {
+	t, ok := c.Tenant(name)
+	if !ok {
 		return fmt.Errorf("no such tenant %q", name)
 	}
+	c.RemoveTenant(name)
 	if err := c.Save(); err != nil {
 		return err
 	}
 	_ = dockerx.Compose("rm", "-sf", "vswarm-"+name)
+	if t.HasService("postgres") {
+		_ = dockerx.Compose("rm", "-sf", "vswarm-db-"+name)
+	}
+	if t.HasService("playwright") {
+		_ = dockerx.Compose("rm", "-sf", "vswarm-playwright-"+name)
+	}
 	if err := render.Render(c); err != nil {
 		return err
 	}

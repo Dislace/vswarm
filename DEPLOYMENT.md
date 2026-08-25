@@ -14,7 +14,7 @@ flag/env-driven, and exits non-zero on failure.
 | --- | --- | --- |
 | Host with Docker + Compose v2 | provisioning role | `vswarm` shells out to `docker` / `docker compose` |
 | `tenants.yaml` | template from vault/inventory | the single source of truth; schema in `tenants.example.yaml` |
-| `.env` | template from vault | must set `VSWARM_TUNNEL_TOKEN`; optional `VSWARM_REGISTRY`, `COMPOSE_PROJECT_NAME` |
+| `.env` | template from vault | must set `VSWARM_TUNNEL_TOKEN`; optional `COMPOSE_PROJECT_NAME` |
 | Per-tenant credentials | stage a tree, `vswarm provision` | the deployment layer owns the key material; `vswarm` owns the path and the modes |
 | Cloudflare Tunnel | dashboard/API | route hostname → `http://vswarm-proxy:8080` |
 | Cloudflare Access policy | dashboard/API | bind to the hostname; allow only `tenants.yaml` emails |
@@ -169,8 +169,8 @@ same two-step contract.
 
 ### Workspace tooling
 
-The stock image manages t3, Claude Code, Codex, Bun, and Go with
-`vswarm-tooling`. The manifest (`tools.tsv`, rendered from
+The stock image manages t3, Claude Code, Codex, OpenCode, Bun, the Infisical
+CLI, and Go with `vswarm-tooling`. The manifest (`tools.tsv`, rendered from
 `templates/tools.tsv.tmpl` and bind-mounted read-only into every tenant at
 `/etc/vswarm-tooling/tools.tsv`) is the single source of truth. Releases are
 installed side by side under `/opt/vswarm-tooling` and selected through links
@@ -326,7 +326,7 @@ ssh -i ~/.ssh/vswarm-admin ubuntu@172.31.10.1
 ## Commands the deployment layer runs
 
 ```bash
-vswarm build                       # build the workspace image (or pull from VSWARM_REGISTRY)
+vswarm build                       # build the workspace image from generated/image
 vswarm up                          # render + start + provision + pair every tenant (idempotent)
 vswarm provision <name> --from DIR # deliver staged credentials into the work volume
 vswarm doctor                      # gate: exits non-zero if any isolation invariant fails

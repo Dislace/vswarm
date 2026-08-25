@@ -346,7 +346,5 @@ tenants:
 
 const defaultEnv = `# Cloudflare Tunnel token (Zero Trust dashboard). Required.
 VSWARM_TUNNEL_TOKEN=
-# Optional image registry prefix (e.g. ghcr.io/dislace).
-VSWARM_REGISTRY=
 COMPOSE_PROJECT_NAME=vswarm
 `

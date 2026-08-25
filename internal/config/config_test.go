@@ -157,6 +157,21 @@ func TestParseRejectsUnknownTopLevelKey(t *testing.T) {
 	}
 }
 
+func TestParseRejectsStrayIndentedLine(t *testing.T) {
+	for _, in := range []string{
+		"domain: code.example.com\n  stray: true\n",
+		"tenants:\n  - email: a@example.com\n    name: a\ntoken_ttl: 1h\n    admin: true\n",
+	} {
+		path := filepath.Join(t.TempDir(), "tenants.yaml")
+		if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse(path); err == nil || !strings.Contains(err.Error(), "unexpected indented key") {
+			t.Errorf("Parse(%q) error = %v, want unexpected indented key — a mis-indented key must not be silently dropped", in, err)
+		}
+	}
+}
+
 func TestParseStorageSectionSurvivesARoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tenants.yaml")
 	input := `domain: code.example.com
