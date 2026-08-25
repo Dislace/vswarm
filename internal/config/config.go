@@ -189,6 +189,8 @@ func Parse(path string) (*Config, error) {
 					return nil, fmt.Errorf("%s:%d: %w", path, n+1, err)
 				}
 			}
+		default:
+			return nil, fmt.Errorf("%s:%d: unexpected indented key %q", path, n+1, trim)
 		}
 	}
 	return c, nil
