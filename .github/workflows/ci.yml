@@ -43,7 +43,7 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck templates/*.sh.tmpl scripts/*.sh
+          shellcheck templates/*.sh.tmpl templates/vswarm-codex-state-reconcile.tmpl scripts/*.sh
       - name: tooling lifecycle
         run: ./scripts/test-vswarm-tooling.sh
 
@@ -75,4 +75,4 @@ jobs:
             --entrypoint /usr/local/bin/vswarm-tooling \
             vswarm/workspace:ci
           docker run --rm --entrypoint sh vswarm/workspace:ci -c \
-            't3 --version && claude --version && codex --version && bun --version && infisical --version && go version'
+            't3 --version && claude --version && codex --version && bun --version && opencode --version && infisical --version && go version'

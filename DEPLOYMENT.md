@@ -169,8 +169,8 @@ same two-step contract.
 
 ### Workspace tooling
 
-The stock image manages t3, Claude Code, Codex, Bun, and Go with
-`vswarm-tooling`. The manifest (`tools.tsv`, rendered from
+The stock image manages t3, Claude Code, Codex, OpenCode, Bun, the Infisical
+CLI, and Go with `vswarm-tooling`. The manifest (`tools.tsv`, rendered from
 `templates/tools.tsv.tmpl` and bind-mounted read-only into every tenant at
 `/etc/vswarm-tooling/tools.tsv`) is the single source of truth. Releases are
 installed side by side under `/opt/vswarm-tooling` and selected through links
