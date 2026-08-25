@@ -91,8 +91,9 @@ func cmdDoctor() error {
 			if t.Admin {
 				return checkResult{}
 			}
-			_, err := containerMode("vswarm-"+t.Name, adminKeyPath())
-			return checkResult{"no admin key in non-admin home: " + t.Name, err != nil, adminKeyDetail(err)}
+			has, detail := containerHas("vswarm-"+t.Name, adminKeyPath())
+			return checkResult{"no admin key in non-admin home: " + t.Name,
+				has.provesAbsence(), detail}
 		})...)
 
 	results = append(results,
@@ -133,10 +134,11 @@ func cmdDoctor() error {
 			if a.Name == b.Name || !b.HasService("postgres") {
 				continue
 			}
-			reach := tenantReachesDB("vswarm-"+a.Name, "vswarm-db-"+b.Name)
+			reach, detail := tenantReachesDB("vswarm-"+a.Name, "vswarm-db-"+b.Name)
 			rs = append(rs, checkResult{
-				name: "isolation: " + a.Name + " cannot reach " + b.Name + " db",
-				pass: !reach,
+				name:   "isolation: " + a.Name + " cannot reach " + b.Name + " db",
+				pass:   reach.provesAbsence(),
+				detail: detail,
 			})
 		}
 		pw[i] = rs
@@ -182,12 +184,74 @@ func tenantReachesProxy(container string) bool {
 	return err == nil
 }
 
-func tenantReachesDB(container, dbContainer string) bool {
+// probe is a three-valued answer. A check that could not run is not a check
+// that ran and found nothing, and conflating the two is how a negative
+// assertion ("A cannot reach B") turns a missing tool into a PASS.
+//
+// This matters beyond the console: Dislace/core gates the fleet converge on
+// doctor's exit code (roles/vswarm/tasks/main.yml, `until: vswarm_doctor.rc ==
+// 0`), so an isolation claim nobody verified is one an apply will accept.
+type probe int
+
+const (
+	probeUnknown probe = iota
+	probeYes
+	probeNo
+)
+
+// verified reports whether a negative assertion may be treated as proven.
+// probeUnknown must not: it is the absence of evidence.
+func (p probe) provesAbsence() bool { return p == probeNo }
+
+// tenantReachesDB answers whether container can open a TCP session to
+// dbContainer's postgres port, and says so out of band rather than through an
+// exit code, so "the probe could not run" stays distinguishable from "the
+// connection was refused". Both used to arrive as a non-zero exit.
+func tenantReachesDB(container, dbContainer string) (probe, string) {
 	script := fmt.Sprintf(
-		"import socket; s=socket.socket(); s.settimeout(3); s.connect((%q, 5432)); s.close()",
+		"import socket\n"+
+			"s = socket.socket()\n"+
+			"s.settimeout(3)\n"+
+			"try:\n"+
+			"    s.connect((%q, 5432))\n"+
+			"    s.close()\n"+
+			"    print('REACHED')\n"+
+			"except OSError as exc:\n"+
+			"    print('BLOCKED', exc)\n",
 		dbContainer)
-	_, err := dockerx.Exec(container, "python3", "-c", script)
-	return err == nil
+	out, err := dockerx.Exec(container, "python3", "-c", script)
+	return interpretProbe(out, err, "REACHED", "BLOCKED")
+}
+
+// containerHas answers whether a path exists inside a container without
+// spending the exit code on the answer, so a stopped container or a missing
+// stat is not read as "the file is absent".
+func containerHas(container, path string) (probe, string) {
+	out, err := dockerx.Exec(container, "sh", "-c",
+		"if [ -e "+shellQuote(path)+" ]; then echo PRESENT; else echo ABSENT; fi")
+	return interpretProbe(out, err, "PRESENT", "ABSENT")
+}
+
+// interpretProbe turns a probe's own words into a verdict. The exit code is
+// deliberately not the channel: it cannot separate "the tool is missing" from
+// "the answer is no", and every negative assertion in doctor depends on that
+// separation.
+func interpretProbe(out string, err error, yes, no string) (probe, string) {
+	if err != nil {
+		return probeUnknown, "probe did not run: " + err.Error()
+	}
+	switch {
+	case strings.Contains(out, yes):
+		return probeYes, ""
+	case strings.Contains(out, no):
+		return probeNo, ""
+	default:
+		return probeUnknown, "probe produced no verdict: " + strings.TrimSpace(out)
+	}
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func dbNetworks(dbContainer string) ([]string, error) {
@@ -238,13 +302,6 @@ func tokenFromLine(s string) string {
 
 func adminKeyPath() string {
 	return render.HomeDir + "/.ssh/vswarm-admin"
-}
-
-func adminKeyDetail(err error) string {
-	if err == nil {
-		return "present"
-	}
-	return ""
 }
 
 func containerMode(container, path string) (string, error) {
