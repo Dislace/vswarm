@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -65,9 +66,19 @@ type Config struct {
 	Path string
 }
 
-// HomeDir is the workspace home inside every tenant container. It lives here
-// because config validation has to keep shared mounts out of per-tenant state.
-const HomeDir = "/home/ai-agent"
+// Container paths the workspace service already occupies. They live here
+// because mount validation has to keep declared mounts off them, and the
+// compose template renders from the same constants so the two cannot drift.
+const (
+	HomeDir         = "/home/ai-agent"
+	CacheDir        = HomeDir + "/.cache"
+	ToolingManifest = "/etc/vswarm-tooling/tools.tsv"
+	RunDir          = "/run"
+)
+
+// ReservedTargets is every container path a workspace mounts on its own. A
+// declared mount may not take one, shadow one, or sit under one.
+var ReservedTargets = []string{HomeDir, CacheDir, ToolingManifest, RunDir}
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
@@ -278,16 +289,22 @@ func (c *Config) Validate() error {
 	}
 	seenTarget := map[string]bool{}
 	for _, m := range c.Mounts {
-		if !strings.HasPrefix(m.Source, "/") || !strings.HasPrefix(m.Target, "/") {
-			return fmt.Errorf("mount %s:%s: both paths must be absolute", m.Source, m.Target)
-		}
 		for _, p := range []string{m.Source, m.Target} {
-			if strings.Contains(p, "..") || strings.ContainsAny(p, "\"\\\n#:") {
+			// Canonical rules out "..", "." and "//", so the checks below
+			// cannot be walked around by spelling the same path differently.
+			if !strings.HasPrefix(p, "/") || filepath.Clean(p) != p {
+				return fmt.Errorf("mount path %q must be absolute and canonical", p)
+			}
+			// A path reaches the compose file verbatim, where "$" would
+			// interpolate from the deploying environment.
+			if strings.ContainsAny(p, "\"\\\n#:$") {
 				return fmt.Errorf("mount path %q contains unsupported characters", p)
 			}
 		}
-		if m.Target == HomeDir || strings.HasPrefix(m.Target, HomeDir+"/") {
-			return fmt.Errorf("mount %s: the tenant home is per-tenant state, not a shared mount", m.Target)
+		for _, reserved := range ReservedTargets {
+			if within(m.Target, reserved) || within(reserved, m.Target) {
+				return fmt.Errorf("mount %s: the workspace already mounts %s", m.Target, reserved)
+			}
 		}
 		if seenTarget[m.Target] {
 			return fmt.Errorf("duplicate mount target %q", m.Target)
@@ -316,6 +333,11 @@ func (c *Config) Validate() error {
 		seenEmail[t.Email] = true
 	}
 	return nil
+}
+
+// within reports whether path is dir or sits under it.
+func within(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+"/")
 }
 
 func (c *Config) Tenant(name string) (Tenant, bool) {

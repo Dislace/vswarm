@@ -71,8 +71,15 @@ mounts:
 ```
 
 Each entry is published read-only into every workspace container. Both paths
-must be absolute, targets must be unique, and nothing may land on the tenant
-home, which is per-tenant state.
+must be absolute and canonical, targets must be unique, and none may take,
+shadow or sit under a path the workspace already mounts — the tenant home, the
+cache, the tooling manifest, `/run`. `vswarm doctor` re-checks every declared
+mount inside each running workspace.
+
+Sources are otherwise unconstrained and Docker resolves them on the host, so a
+source is as trusted as whoever writes `tenants.yaml`; keep them inside one
+published directory. Docker creates a missing source as an empty root-owned
+directory rather than failing, which is what `doctor` is for.
 
 Baking those assets into the image instead is what makes them expensive:
 rebuilding the image moves its id, `vswarm up` sees a new image and recreates

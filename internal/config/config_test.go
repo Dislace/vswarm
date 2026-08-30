@@ -440,13 +440,28 @@ tenants:
 
 func TestValidateRejectsUnsafeMounts(t *testing.T) {
 	cases := map[string][]Mount{
-		"relative source":      {{Source: "cli", Target: "/opt/dislace-cli"}},
-		"relative target":      {{Source: "/opt/cli", Target: "opt/dislace-cli"}},
-		"traversal":            {{Source: "/opt/../etc", Target: "/opt/dislace-cli"}},
-		"over the tenant home": {{Source: "/opt/cli", Target: "/home/ai-agent/.config"}},
+		"relative source":         {{Source: "cli", Target: "/opt/dislace-cli"}},
+		"relative target":         {{Source: "/opt/cli", Target: "opt/dislace-cli"}},
+		"traversal":               {{Source: "/opt/../etc", Target: "/opt/dislace-cli"}},
+		"traversal spelt with .":  {{Source: "/opt/cli", Target: "/home/./ai-agent"}},
+		"traversal spelt with //": {{Source: "/opt/cli", Target: "//home/ai-agent"}},
+		"trailing slash":          {{Source: "/opt/cli", Target: "/opt/dislace-cli/"}},
+		"over the tenant home":    {{Source: "/opt/cli", Target: "/home/ai-agent/.config"}},
+		"over the tooling manifest": {
+			{Source: "/opt/cli", Target: "/etc/vswarm-tooling/tools.tsv"},
+		},
+		"over the run tmpfs": {{Source: "/opt/cli", Target: "/run"}},
+		"shadowing a reserved parent": {
+			{Source: "/opt/cli", Target: "/etc/vswarm-tooling"},
+		},
+		"compose interpolation": {{Source: "/opt/${SECRET}/cli", Target: "/opt/dislace-cli"}},
 		"duplicate target": {
 			{Source: "/opt/cli", Target: "/opt/dislace-cli"},
 			{Source: "/opt/other", Target: "/opt/dislace-cli"},
+		},
+		"duplicate target spelt with .": {
+			{Source: "/opt/cli", Target: "/opt/dislace-cli"},
+			{Source: "/opt/other", Target: "/opt/./dislace-cli"},
 		},
 	}
 	for name, mounts := range cases {
@@ -456,6 +471,15 @@ func TestValidateRejectsUnsafeMounts(t *testing.T) {
 		if err := c.Validate(); err == nil {
 			t.Errorf("%s: Validate() accepted %#v", name, mounts)
 		}
+	}
+}
+
+func TestValidateAcceptsACanonicalDottedPath(t *testing.T) {
+	c := Default()
+	c.Domain = "code.example.com"
+	c.Mounts = []Mount{{Source: "/opt/my..dir", Target: "/opt/dislace-cli"}}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate() rejected a canonical path: %v", err)
 	}
 }
 
