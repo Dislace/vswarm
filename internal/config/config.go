@@ -33,6 +33,14 @@ type Resources struct {
 	Pids   int
 }
 
+// Mount is a host path published read-only into every workspace container.
+// Host-managed assets belong here rather than in the image: rebaking them
+// moves the image id, and a moved image id recreates every workspace.
+type Mount struct {
+	Source string
+	Target string
+}
+
 type Storage struct {
 	Driver string
 	Opts   map[string]string
@@ -51,10 +59,15 @@ type Config struct {
 	TokenTTL        string
 	ManageTunnel    bool
 	EdgeExternal    bool
+	Mounts          []Mount
 	Tenants         []Tenant
 
 	Path string
 }
+
+// HomeDir is the workspace home inside every tenant container. It lives here
+// because config validation has to keep shared mounts out of per-tenant state.
+const HomeDir = "/home/ai-agent"
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
@@ -136,6 +149,8 @@ func Parse(path string) (*Config, error) {
 				section = "resources"
 			case "storage":
 				section = "storage"
+			case "mounts":
+				section = "mounts"
 			case "tenants":
 				section = "tenants"
 			default:
@@ -173,6 +188,15 @@ func Parse(path string) (*Config, error) {
 			default:
 				return nil, fmt.Errorf("%s:%d: unknown storage key %q", path, n+1, key)
 			}
+		case "mounts":
+			if !strings.HasPrefix(trim, "-") {
+				return nil, fmt.Errorf("%s:%d: mounts takes a list of source:target entries", path, n+1)
+			}
+			m, err := parseMount(strings.TrimSpace(strings.TrimPrefix(trim, "-")))
+			if err != nil {
+				return nil, fmt.Errorf("%s:%d: %w", path, n+1, err)
+			}
+			c.Mounts = append(c.Mounts, m)
 		case "tenants":
 			if strings.HasPrefix(trim, "-") {
 				c.Tenants = append(c.Tenants, Tenant{})
@@ -194,6 +218,14 @@ func Parse(path string) (*Config, error) {
 		}
 	}
 	return c, nil
+}
+
+func parseMount(entry string) (Mount, error) {
+	source, target, ok := strings.Cut(unquote(entry), ":")
+	if !ok {
+		return Mount{}, fmt.Errorf("mount %q must be source:target", entry)
+	}
+	return Mount{Source: strings.TrimSpace(source), Target: strings.TrimSpace(target)}, nil
 }
 
 func applyTenant(t *Tenant, k, v string) error {
@@ -243,6 +275,24 @@ func (c *Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Storage.Driver) == "" {
 		c.Storage.Driver = "local"
+	}
+	seenTarget := map[string]bool{}
+	for _, m := range c.Mounts {
+		if !strings.HasPrefix(m.Source, "/") || !strings.HasPrefix(m.Target, "/") {
+			return fmt.Errorf("mount %s:%s: both paths must be absolute", m.Source, m.Target)
+		}
+		for _, p := range []string{m.Source, m.Target} {
+			if strings.Contains(p, "..") || strings.ContainsAny(p, "\"\\\n#:") {
+				return fmt.Errorf("mount path %q contains unsupported characters", p)
+			}
+		}
+		if m.Target == HomeDir || strings.HasPrefix(m.Target, HomeDir+"/") {
+			return fmt.Errorf("mount %s: the tenant home is per-tenant state, not a shared mount", m.Target)
+		}
+		if seenTarget[m.Target] {
+			return fmt.Errorf("duplicate mount target %q", m.Target)
+		}
+		seenTarget[m.Target] = true
 	}
 	seenName := map[string]bool{}
 	seenEmail := map[string]bool{}
@@ -330,6 +380,12 @@ func (c *Config) Save() error {
 	fmt.Fprintf(&b, "token_ttl: %s\n", c.TokenTTL)
 	fmt.Fprintf(&b, "manage_tunnel: %t\n", c.ManageTunnel)
 	fmt.Fprintf(&b, "edge_external: %t\n", c.EdgeExternal)
+	if len(c.Mounts) > 0 {
+		b.WriteString("mounts:\n")
+		for _, m := range c.Mounts {
+			fmt.Fprintf(&b, "  - %s:%s\n", m.Source, m.Target)
+		}
+	}
 	b.WriteString("tenants:\n")
 	for _, t := range c.Tenants {
 		fmt.Fprintf(&b, "  - email: %q\n", t.Email)

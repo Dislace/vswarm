@@ -69,6 +69,9 @@ services:
       - {{.WorkVolume}}:{{$.HomeDir}}
       - {{.CacheVolume}}:{{$.CacheDir}}
       - ./generated/image/tools.tsv:/etc/vswarm-tooling/tools.tsv:ro
+{{- range $.Mounts}}
+      - {{.Source}}:{{.Target}}:ro
+{{- end}}
     tmpfs:
       - /run
     ulimits:

@@ -12,6 +12,12 @@ resources:
 
 token_ttl: 30d
 
+# Host paths published read-only into every workspace. Host-managed assets
+# belong here rather than in the image: rebaking one moves the image id, and a
+# moved image id recreates every workspace, killing the sessions inside.
+mounts:
+  - /opt/vswarm/cli:/opt/vendor-cli
+
 tenants:
   - email: sarah@example.com
     name: sarah

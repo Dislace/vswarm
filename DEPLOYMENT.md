@@ -60,6 +60,25 @@ thing you have to change.
 > convenience; if you move durable volumes to NFS, consider leaving the
 > database local or accepting that it is disposable.
 
+### Host assets the workspaces share
+
+Anything the host manages and every workspace reads — an operator CLI, a
+service catalog — goes in `mounts:` rather than into the workspace image:
+
+```yaml
+mounts:
+  - /opt/vswarm/cli:/opt/vendor-cli
+```
+
+Each entry is published read-only into every workspace container. Both paths
+must be absolute, targets must be unique, and nothing may land on the tenant
+home, which is per-tenant state.
+
+Baking those assets into the image instead is what makes them expensive:
+rebuilding the image moves its id, `vswarm up` sees a new image and recreates
+every workspace container, and every session running inside dies. A mount
+updates in place and recreates nothing.
+
 ### Declared repos
 
 The split makes the work volume small; declaring repos is what makes it

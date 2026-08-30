@@ -377,3 +377,29 @@ func TestRenderRejectsTooManyTenants(t *testing.T) {
 		t.Fatalf("Render() error = %v, want subnet exhaustion error", err)
 	}
 }
+
+func TestRenderPublishesDeclaredMountsReadOnly(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain:    "code.example.com",
+		Image:     "vswarm/workspace:test",
+		Resources: config.Resources{CPUs: "1", Memory: "1g", Pids: 128},
+		Mounts:    []config.Mount{{Source: "/opt/dislace/vswarm/cli", Target: "/opt/dislace-cli"}},
+		Tenants: []config.Tenant{
+			{Email: "alice@example.com", Name: "alice"},
+			{Email: "bob@example.com", Name: "bob"},
+		},
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	compose := readFile(t, filepath.Join(GeneratedDir, "docker-compose.yml"))
+
+	want := "- /opt/dislace/vswarm/cli:/opt/dislace-cli:ro"
+	if n := strings.Count(compose, want); n != 2 {
+		t.Errorf("declared mount appears %d times, want one per tenant workspace (2)", n)
+	}
+	if strings.Contains(compose, "/opt/dislace-cli:rw") {
+		t.Error("declared mount is writable; shared host assets must stay read-only")
+	}
+}
