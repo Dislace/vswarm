@@ -400,3 +400,102 @@ func TestSaveQuotesEmailsSoTheyRoundTrip(t *testing.T) {
 		t.Fatalf("email did not survive the round trip: %#v", roundTrip.Tenants)
 	}
 }
+
+func TestParseMountsSurviveARoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	input := `domain: code.example.com
+mounts:
+  - /opt/dislace/vswarm/cli:/opt/dislace-cli
+tenants:
+  - email: alice@example.com
+    name: alice
+`
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if len(got.Mounts) != 1 || got.Mounts[0].Source != "/opt/dislace/vswarm/cli" ||
+		got.Mounts[0].Target != "/opt/dislace-cli" {
+		t.Fatalf("unexpected mounts: %#v", got.Mounts)
+	}
+
+	got.Path = path
+	if err := got.Save(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Parse(path)
+	if err != nil {
+		t.Fatalf("re-parse after Save() error = %v", err)
+	}
+	if len(again.Mounts) != 1 || again.Mounts[0] != got.Mounts[0] {
+		t.Fatalf("mounts lost on round trip: %#v", again.Mounts)
+	}
+}
+
+func TestValidateRejectsUnsafeMounts(t *testing.T) {
+	cases := map[string][]Mount{
+		"relative source":         {{Source: "cli", Target: "/opt/dislace-cli"}},
+		"relative target":         {{Source: "/opt/cli", Target: "opt/dislace-cli"}},
+		"traversal":               {{Source: "/opt/../etc", Target: "/opt/dislace-cli"}},
+		"traversal spelt with .":  {{Source: "/opt/cli", Target: "/home/./ai-agent"}},
+		"traversal spelt with //": {{Source: "/opt/cli", Target: "//home/ai-agent"}},
+		"trailing slash":          {{Source: "/opt/cli", Target: "/opt/dislace-cli/"}},
+		"over the tenant home":    {{Source: "/opt/cli", Target: "/home/ai-agent/.config"}},
+		"over the tooling manifest": {
+			{Source: "/opt/cli", Target: "/etc/vswarm-tooling/tools.tsv"},
+		},
+		"over the run tmpfs": {{Source: "/opt/cli", Target: "/run"}},
+		"shadowing a reserved parent": {
+			{Source: "/opt/cli", Target: "/etc/vswarm-tooling"},
+		},
+		"compose interpolation": {{Source: "/opt/${SECRET}/cli", Target: "/opt/dislace-cli"}},
+		"duplicate target": {
+			{Source: "/opt/cli", Target: "/opt/dislace-cli"},
+			{Source: "/opt/other", Target: "/opt/dislace-cli"},
+		},
+		"duplicate target spelt with .": {
+			{Source: "/opt/cli", Target: "/opt/dislace-cli"},
+			{Source: "/opt/other", Target: "/opt/./dislace-cli"},
+		},
+	}
+	for name, mounts := range cases {
+		c := Default()
+		c.Domain = "code.example.com"
+		c.Mounts = mounts
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %#v", name, mounts)
+		}
+	}
+}
+
+func TestValidateAcceptsACanonicalDottedPath(t *testing.T) {
+	c := Default()
+	c.Domain = "code.example.com"
+	c.Mounts = []Mount{{Source: "/opt/my..dir", Target: "/opt/dislace-cli"}}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate() rejected a canonical path: %v", err)
+	}
+}
+
+func TestParseRejectsMountWithoutATarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	input := `domain: code.example.com
+mounts:
+  - /opt/dislace/vswarm/cli
+tenants:
+  - email: alice@example.com
+    name: alice
+`
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(path); err == nil || !strings.Contains(err.Error(), "source:target") {
+		t.Fatalf("Parse() error = %v, want a source:target complaint", err)
+	}
+}

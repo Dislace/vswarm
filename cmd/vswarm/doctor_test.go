@@ -115,3 +115,43 @@ func TestInterpretProbeUsesTheCallersSentinels(t *testing.T) {
 		t.Fatalf("PRESENT must not prove absence, got %v", got)
 	}
 }
+
+func TestDeclaredMountMustBeReadOnly(t *testing.T) {
+	const target = "/opt/dislace-cli"
+	for _, tc := range []struct {
+		name    string
+		out     string
+		mounted bool
+	}{
+		{
+			name:    "read-only",
+			out:     "/dev/sdb /opt/dislace-cli ext4 ro,relatime 0 0\n",
+			mounted: true,
+		},
+		{
+			name:    "writable",
+			out:     "/dev/sdb /opt/dislace-cli ext4 rw,relatime 0 0\n",
+			mounted: false,
+		},
+		{
+			name:    "absent",
+			out:     "/dev/sdb /home/ai-agent ext4 rw 0 0\n",
+			mounted: false,
+		},
+		{
+			name:    "prefix of an option is not the option",
+			out:     "/dev/sdb /opt/dislace-cli ext4 rootcontext=x,rw 0 0\n",
+			mounted: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mounted, detail := mountedAt(tc.out, nil, target, true)
+			if mounted != tc.mounted {
+				t.Fatalf("mounted = %v, want %v (detail %q)", mounted, tc.mounted, detail)
+			}
+			if !mounted && detail == "" {
+				t.Error("a failing check should explain itself")
+			}
+		})
+	}
+}

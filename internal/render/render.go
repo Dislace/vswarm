@@ -34,8 +34,8 @@ const (
 	// cap is load-bearing beyond this repo.
 	MaxTenants = 245
 
-	HomeDir  = "/home/ai-agent"
-	CacheDir = HomeDir + "/.cache"
+	HomeDir  = config.HomeDir
+	CacheDir = config.CacheDir
 )
 
 var cacheEnv = []kv{
@@ -92,6 +92,9 @@ type view struct {
 	HomeDir         string
 	CacheDir        string
 	CacheEnv        []kv
+	ToolingManifest string
+	RunDir          string
+	Mounts          []config.Mount
 	Driver          string
 	DriverOpts      []kv
 	Tenants         []tenantView
@@ -123,6 +126,9 @@ func buildView(c *config.Config) view {
 		HomeDir:         HomeDir,
 		CacheDir:        CacheDir,
 		CacheEnv:        cacheEnv,
+		ToolingManifest: config.ToolingManifest,
+		RunDir:          config.RunDir,
+		Mounts:          c.Mounts,
 		Driver:          driverOr(c.Storage.Driver),
 		DriverOpts:      sortedOpts(c.Storage.Opts),
 	}

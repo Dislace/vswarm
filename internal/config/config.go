@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -33,6 +34,14 @@ type Resources struct {
 	Pids   int
 }
 
+// Mount is a host path published read-only into every workspace container.
+// Host-managed assets belong here rather than in the image: rebaking them
+// moves the image id, and a moved image id recreates every workspace.
+type Mount struct {
+	Source string
+	Target string
+}
+
 type Storage struct {
 	Driver string
 	Opts   map[string]string
@@ -51,10 +60,25 @@ type Config struct {
 	TokenTTL        string
 	ManageTunnel    bool
 	EdgeExternal    bool
+	Mounts          []Mount
 	Tenants         []Tenant
 
 	Path string
 }
+
+// Container paths the workspace service already occupies. They live here
+// because mount validation has to keep declared mounts off them, and the
+// compose template renders from the same constants so the two cannot drift.
+const (
+	HomeDir         = "/home/ai-agent"
+	CacheDir        = HomeDir + "/.cache"
+	ToolingManifest = "/etc/vswarm-tooling/tools.tsv"
+	RunDir          = "/run"
+)
+
+// ReservedTargets is every container path a workspace mounts on its own. A
+// declared mount may not take one, shadow one, or sit under one.
+var ReservedTargets = []string{HomeDir, CacheDir, ToolingManifest, RunDir}
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
@@ -136,6 +160,8 @@ func Parse(path string) (*Config, error) {
 				section = "resources"
 			case "storage":
 				section = "storage"
+			case "mounts":
+				section = "mounts"
 			case "tenants":
 				section = "tenants"
 			default:
@@ -173,6 +199,15 @@ func Parse(path string) (*Config, error) {
 			default:
 				return nil, fmt.Errorf("%s:%d: unknown storage key %q", path, n+1, key)
 			}
+		case "mounts":
+			if !strings.HasPrefix(trim, "-") {
+				return nil, fmt.Errorf("%s:%d: mounts takes a list of source:target entries", path, n+1)
+			}
+			m, err := parseMount(strings.TrimSpace(strings.TrimPrefix(trim, "-")))
+			if err != nil {
+				return nil, fmt.Errorf("%s:%d: %w", path, n+1, err)
+			}
+			c.Mounts = append(c.Mounts, m)
 		case "tenants":
 			if strings.HasPrefix(trim, "-") {
 				c.Tenants = append(c.Tenants, Tenant{})
@@ -194,6 +229,14 @@ func Parse(path string) (*Config, error) {
 		}
 	}
 	return c, nil
+}
+
+func parseMount(entry string) (Mount, error) {
+	source, target, ok := strings.Cut(unquote(entry), ":")
+	if !ok {
+		return Mount{}, fmt.Errorf("mount %q must be source:target", entry)
+	}
+	return Mount{Source: strings.TrimSpace(source), Target: strings.TrimSpace(target)}, nil
 }
 
 func applyTenant(t *Tenant, k, v string) error {
@@ -244,6 +287,30 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Storage.Driver) == "" {
 		c.Storage.Driver = "local"
 	}
+	seenTarget := map[string]bool{}
+	for _, m := range c.Mounts {
+		for _, p := range []string{m.Source, m.Target} {
+			// Canonical rules out "..", "." and "//", so the checks below
+			// cannot be walked around by spelling the same path differently.
+			if !strings.HasPrefix(p, "/") || filepath.Clean(p) != p {
+				return fmt.Errorf("mount path %q must be absolute and canonical", p)
+			}
+			// A path reaches the compose file verbatim, where "$" would
+			// interpolate from the deploying environment.
+			if strings.ContainsAny(p, "\"\\\n#:$") {
+				return fmt.Errorf("mount path %q contains unsupported characters", p)
+			}
+		}
+		for _, reserved := range ReservedTargets {
+			if within(m.Target, reserved) || within(reserved, m.Target) {
+				return fmt.Errorf("mount %s: the workspace already mounts %s", m.Target, reserved)
+			}
+		}
+		if seenTarget[m.Target] {
+			return fmt.Errorf("duplicate mount target %q", m.Target)
+		}
+		seenTarget[m.Target] = true
+	}
 	seenName := map[string]bool{}
 	seenEmail := map[string]bool{}
 	for _, t := range c.Tenants {
@@ -266,6 +333,11 @@ func (c *Config) Validate() error {
 		seenEmail[t.Email] = true
 	}
 	return nil
+}
+
+// within reports whether path is dir or sits under it.
+func within(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+"/")
 }
 
 func (c *Config) Tenant(name string) (Tenant, bool) {
@@ -330,6 +402,12 @@ func (c *Config) Save() error {
 	fmt.Fprintf(&b, "token_ttl: %s\n", c.TokenTTL)
 	fmt.Fprintf(&b, "manage_tunnel: %t\n", c.ManageTunnel)
 	fmt.Fprintf(&b, "edge_external: %t\n", c.EdgeExternal)
+	if len(c.Mounts) > 0 {
+		b.WriteString("mounts:\n")
+		for _, m := range c.Mounts {
+			fmt.Fprintf(&b, "  - %s:%s\n", m.Source, m.Target)
+		}
+	}
 	b.WriteString("tenants:\n")
 	for _, t := range c.Tenants {
 		fmt.Fprintf(&b, "  - email: %q\n", t.Email)

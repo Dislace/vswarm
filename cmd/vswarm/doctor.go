@@ -80,6 +80,15 @@ func cmdDoctor() error {
 			return checkResult{"cache is a separate volume for " + t.Name, mounted, detail}
 		})...)
 
+	for _, m := range c.Mounts {
+		mount := m
+		results = append(results,
+			tenantChecks(c, func(t config.Tenant) checkResult {
+				took, detail := declaredMountTook("vswarm-"+t.Name, mount.Target)
+				return checkResult{"read-only mount at " + mount.Target + " for " + t.Name, took, detail}
+			})...)
+	}
+
 	results = append(results,
 		tenantChecks(c, func(t config.Tenant) checkResult {
 			mode, merr := containerMode("vswarm-"+t.Name, render.HomeDir+"/.ssh")
@@ -318,16 +327,40 @@ func cacheMountTook(container string) (bool, string) {
 }
 
 func interpretMounts(out string, err error) (bool, string) {
+	return mountedAt(out, err, render.CacheDir, false)
+}
+
+func declaredMountTook(container, target string) (bool, string) {
+	out, err := dockerx.Exec(container, "cat", "/proc/self/mounts")
+	return mountedAt(out, err, target, true)
+}
+
+// mountedAt reads /proc/self/mounts for a mount on path. A declared mount is
+// only doing its job read-only: writable, it is tenant state on a shared path.
+func mountedAt(out string, err error, path string, wantReadOnly bool) (bool, string) {
 	if err != nil {
 		return false, errStr(err)
 	}
 	for _, ln := range strings.Split(out, "\n") {
 		f := strings.Fields(ln)
-		if len(f) >= 2 && f[1] == render.CacheDir {
-			return true, ""
+		if len(f) < 4 || f[1] != path {
+			continue
+		}
+		if wantReadOnly && !hasOption(f[3], "ro") {
+			return false, "mount at " + path + " is writable"
+		}
+		return true, ""
+	}
+	return false, "no mount at " + path
+}
+
+func hasOption(options, want string) bool {
+	for _, o := range strings.Split(options, ",") {
+		if o == want {
+			return true
 		}
 	}
-	return false, "no mount at " + render.CacheDir
+	return false
 }
 
 func pathDetail(mode string, err error) string {

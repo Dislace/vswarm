@@ -32,6 +32,10 @@ tenant, or an unauthenticated attacker, can reach.
   default, each on its own network, with `pids`, `ulimits`, and CPU/memory
   limits.
 - **SSH key perms.** Per-tenant `.ssh` is `0700`.
+- **Declared mounts are read-only and off tenant state.** A `mounts:` entry is
+  rendered `:ro` and rejected if its target takes, shadows, or sits under a path
+  the workspace already mounts — the tenant home, the cache, the tooling
+  manifest, `/run`. `doctor` re-checks each one in the running container.
 
 ### Workspace privilege posture (dev-env default)
 
@@ -83,5 +87,11 @@ the raw header. Requires an Angie build with njs + `ngx.fetch`.
 - **Shared host kernel.** Containers are not VMs; a kernel-level escape crosses
   the boundary. Run on a dedicated host; consider `userns-remap` and, for higher
   assurance, a VM/microVM per tenant.
+- **Declared mounts are operator-trusted host paths.** `mounts:` sources are
+  validated as canonical absolute paths but are not otherwise constrained, and
+  symlinks are resolved by Docker on the host: an operator who points one at `/`
+  or at the Docker socket publishes it read-only into every workspace. The same
+  bytes are visible to every tenant, so a mount is a shared read channel, not a
+  per-tenant one. Keep sources to a dedicated published directory.
 - **T3 token scope.** v1 injects a session token with broad scopes. Scoping it
   down to client-only capabilities is planned.

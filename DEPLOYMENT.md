@@ -60,6 +60,32 @@ thing you have to change.
 > convenience; if you move durable volumes to NFS, consider leaving the
 > database local or accepting that it is disposable.
 
+### Host assets the workspaces share
+
+Anything the host manages and every workspace reads — an operator CLI, a
+service catalog — goes in `mounts:` rather than into the workspace image:
+
+```yaml
+mounts:
+  - /opt/vswarm/cli:/opt/vendor-cli
+```
+
+Each entry is published read-only into every workspace container. Both paths
+must be absolute and canonical, targets must be unique, and none may take,
+shadow or sit under a path the workspace already mounts — the tenant home, the
+cache, the tooling manifest, `/run`. `vswarm doctor` re-checks every declared
+mount inside each running workspace.
+
+Sources are otherwise unconstrained and Docker resolves them on the host, so a
+source is as trusted as whoever writes `tenants.yaml`; keep them inside one
+published directory. Docker creates a missing source as an empty root-owned
+directory rather than failing, which is what `doctor` is for.
+
+Baking those assets into the image instead is what makes them expensive:
+rebuilding the image moves its id, `vswarm up` sees a new image and recreates
+every workspace container, and every session running inside dies. A mount
+updates in place and recreates nothing.
+
 ### Declared repos
 
 The split makes the work volume small; declaring repos is what makes it
