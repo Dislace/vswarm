@@ -327,9 +327,16 @@ Contract the deployment layer implements:
   layer never touches tenant storage directly, because after the volume split
   there is no host path for it to touch.
 - The **public** half goes into the host user's `authorized_keys`, source-pinned
-  to the tenant's own subnet (`from="172.31.<10+index>.0/24"`), so the key is
+  to the tenant's own subnet (`from="172.31.<net_id>.0/24"`), so the key is
   useless anywhere but that workspace. Revocation = flip `admin` off and
   re-apply (the `authorized_keys` line is removed).
+
+  Declare `net_id` per tenant in `tenants.yaml` so the octet is stated once and
+  both sides read it. It is optional: a tenant without one keeps the old
+  `10 + roster position`. Prefer declaring it, because with position the octet
+  moves when a tenant earlier in the roster is removed, and the source pin then
+  authorizes that key on a different tenant's subnet. vswarm refuses a `net_id`
+  outside 10-254 or shared by two tenants.
 
 `vswarm doctor` gains two invariants:
 

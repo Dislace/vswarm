@@ -16,6 +16,13 @@ type Tenant struct {
 	Services []string
 	Admin    bool
 
+	// NetID is the third octet of the tenant's bridge subnet. Zero means the
+	// roster has not declared one and render falls back to roster position.
+	// core/infra source-pins each admin key to this subnet, so deriving it
+	// from position moved an access-control boundary whenever a tenant was
+	// removed.
+	NetID int
+
 	Repos []string
 }
 
@@ -239,6 +246,13 @@ func parseMount(entry string) (Mount, error) {
 	return Mount{Source: strings.TrimSpace(source), Target: strings.TrimSpace(target)}, nil
 }
 
+// Tenant bridge subnets are 172.31.<net_id>.0/24. 0-9 are reserved for the
+// edge network and its proxy; 255 is the broadcast address.
+const (
+	MinNetID = 10
+	MaxNetID = 254
+)
+
 func applyTenant(t *Tenant, k, v string) error {
 	switch k {
 	case "email":
@@ -254,6 +268,12 @@ func applyTenant(t *Tenant, k, v string) error {
 		}
 	case "admin":
 		t.Admin = parseBool(v)
+	case "net_id":
+		id, err := strconv.Atoi(strings.TrimSpace(unquote(v)))
+		if err != nil {
+			return fmt.Errorf("net_id %q is not a number", v)
+		}
+		t.NetID = id
 	case "repos":
 		t.Repos = append(t.Repos, parseList(v)...)
 	default:
@@ -313,6 +333,7 @@ func (c *Config) Validate() error {
 	}
 	seenName := map[string]bool{}
 	seenEmail := map[string]bool{}
+	seenNetID := map[int]string{}
 	for _, t := range c.Tenants {
 		if !strings.Contains(t.Email, "@") {
 			return fmt.Errorf("tenant %q: invalid email %q", t.Name, t.Email)
@@ -328,6 +349,17 @@ func (c *Config) Validate() error {
 		}
 		if seenEmail[t.Email] {
 			return fmt.Errorf("duplicate tenant email %q", t.Email)
+		}
+		if t.NetID != 0 {
+			if t.NetID < MinNetID || t.NetID > MaxNetID {
+				return fmt.Errorf("tenant %q: net_id %d is outside %d-%d",
+					t.Name, t.NetID, MinNetID, MaxNetID)
+			}
+			if other, taken := seenNetID[t.NetID]; taken {
+				return fmt.Errorf("tenants %q and %q both declare net_id %d; "+
+					"each subnet authorizes one tenant's keys", other, t.Name, t.NetID)
+			}
+			seenNetID[t.NetID] = t.Name
 		}
 		seenName[t.Name] = true
 		seenEmail[t.Email] = true

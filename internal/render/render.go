@@ -29,9 +29,11 @@ const (
 
 	DBMemory = "1g"
 
-	// Tenant subnets are 172.31.{10+i}.0/24; i+10 must stay below 255. The
-	// same formula authorizes admin tenants on the host (core/infra), so the
-	// cap is load-bearing beyond this repo.
+	// A tenant's subnet is 172.31.<net_id>.0/24 where the roster declares
+	// net_id, falling back to 10+position for rosters that do not. The same
+	// octet authorizes that tenant's admin key on the host (core/infra), so
+	// deriving it from position moved an access-control boundary onto another
+	// tenant whenever one was removed. The cap bounds the fallback.
 	MaxTenants = 245
 
 	HomeDir  = config.HomeDir
@@ -138,7 +140,7 @@ func buildView(c *config.Config) view {
 			Email:       t.Email,
 			Container:   "vswarm-" + t.Name,
 			Net:         "vswarm-net-" + t.Name,
-			Subnet:      fmt.Sprintf("172.31.%d.0/24", 10+i),
+			Subnet:      fmt.Sprintf("172.31.%d.0/24", netID(t, i)),
 			WorkVolume:  WorkVolume(t.Name),
 			CacheVolume: CacheVolume(t.Name),
 		}
@@ -267,6 +269,15 @@ func resolvePGPassword(name string) (string, error) {
 		return "", err
 	}
 	return pw, os.Chmod(p, 0o600)
+}
+
+// netID prefers the octet the roster declares. Position is the fallback, so a
+// roster that has not adopted net_id renders exactly as it did before.
+func netID(t config.Tenant, position int) int {
+	if t.NetID != 0 {
+		return t.NetID
+	}
+	return config.MinNetID + position
 }
 
 func driverOr(d string) string {

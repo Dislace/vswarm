@@ -403,3 +403,22 @@ func TestRenderPublishesDeclaredMountsReadOnly(t *testing.T) {
 		t.Error("declared mount is writable; shared host assets must stay read-only")
 	}
 }
+
+func TestSubnetPrefersTheDeclaredNetID(t *testing.T) {
+	declared := config.Tenant{Name: "b", Email: "b@example.com", NetID: 42}
+	if got := netID(declared, 0); got != 42 {
+		t.Fatalf("netID = %d, want the declared 42", got)
+	}
+
+	// A roster that has not adopted net_id must render exactly as before.
+	for position, want := range map[int]int{0: 10, 1: 11, 5: 15} {
+		if got := netID(config.Tenant{Name: "a"}, position); got != want {
+			t.Fatalf("position %d: netID = %d, want %d", position, got, want)
+		}
+	}
+
+	// Removing a tenant ahead of a declared one must not move its subnet.
+	if got := netID(declared, 3); got != 42 {
+		t.Fatalf("netID = %d; a declared octet must not follow roster position", got)
+	}
+}

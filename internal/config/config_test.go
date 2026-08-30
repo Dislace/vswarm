@@ -499,3 +499,56 @@ tenants:
 		t.Fatalf("Parse() error = %v, want a source:target complaint", err)
 	}
 }
+
+func parseRoster(t *testing.T, body string) (*Config, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse(path)
+	if err != nil {
+		return nil, err
+	}
+	return c, c.Validate()
+}
+
+func TestNetIDIsOptionalAndChecked(t *testing.T) {
+	base := "domain: example.com\ntenants:\n  - email: a@example.com\n    name: a\n"
+
+	t.Run("absent leaves it zero so render falls back to position", func(t *testing.T) {
+		c, err := parseRoster(t, base)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if c.Tenants[0].NetID != 0 {
+			t.Fatalf("net_id = %d, want 0 when the roster omits it", c.Tenants[0].NetID)
+		}
+	})
+
+	t.Run("declared is carried through", func(t *testing.T) {
+		c, err := parseRoster(t, base+"    net_id: 17\n")
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if c.Tenants[0].NetID != 17 {
+			t.Fatalf("net_id = %d, want 17", c.Tenants[0].NetID)
+		}
+	})
+
+	t.Run("out of range is refused", func(t *testing.T) {
+		if _, err := parseRoster(t, base+"    net_id: 9\n"); err == nil {
+			t.Fatal("net_id 9 collides with the edge network and must be refused")
+		}
+		if _, err := parseRoster(t, base+"    net_id: 255\n"); err == nil {
+			t.Fatal("net_id 255 is the broadcast address and must be refused")
+		}
+	})
+
+	t.Run("two tenants cannot share one subnet", func(t *testing.T) {
+		roster := base + "    net_id: 11\n  - email: b@example.com\n    name: b\n    net_id: 11\n"
+		if _, err := parseRoster(t, roster); err == nil {
+			t.Fatal("a shared net_id authorizes one tenant's keys on another's subnet")
+		}
+	})
+}
