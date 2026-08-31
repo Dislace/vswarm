@@ -309,6 +309,34 @@ prune_releases() {
   done
 }
 
+retire_unmanaged() {
+  local candidate release tool link resolved kept
+  for candidate in "${release_root}"/*; do
+    [[ -d "${candidate}" ]] || continue
+    tool="${candidate##*/}"
+    [[ -n "${tool_source[${tool}]+set}" ]] && continue
+    kept=0
+    for release in "${candidate}"/*; do
+      [[ -d "${release}" ]] || continue
+      if release_in_use "${release}"; then
+        echo "${tool}: retained in-use ${release##*/}, dropped from the manifest"
+        kept=1
+        continue
+      fi
+      for link in "${bin_dir}"/*; do
+        [[ -L "${link}" ]] || continue
+        resolved="$(readlink -f "${link}" 2>/dev/null || true)"
+        [[ "${resolved}" == "${release}"/* ]] && unlink "${link}"
+      done
+      remove_release_tree "${release}"
+    done
+    if [[ "${kept}" -eq 0 ]]; then
+      rmdir "${candidate}" 2>/dev/null || true
+      echo "${tool}: removed, the manifest no longer declares it"
+    fi
+  done
+}
+
 converge_one() {
   local tool="$1" before after
   before="$(release_version_from_link "${tool}")"
@@ -343,3 +371,5 @@ trap cleanup EXIT INT TERM
 for tool in "${tools[@]}"; do
   converge_one "${tool}"
 done
+
+retire_unmanaged

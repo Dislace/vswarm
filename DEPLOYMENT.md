@@ -122,7 +122,6 @@ Stage a directory that mirrors the tenant home and hand it over:
 ```bash
 install -d -m 0700 stage/.ssh
 install -m 0600 /path/to/key stage/.ssh/vswarm-admin
-install -m 0600 /path/to/infisical.env stage/.infisical.env
 vswarm provision <name> --from stage
 ```
 
@@ -195,8 +194,8 @@ same two-step contract.
 
 ### Workspace tooling
 
-The stock image manages t3, Claude Code, Codex, OpenCode, Bun, the Infisical
-CLI, and Go with `vswarm-tooling`. The manifest (`tools.tsv`, rendered from
+The stock image manages t3, Claude Code, Codex, OpenCode, Bun and Go with
+`vswarm-tooling`. The manifest (`tools.tsv`, rendered from
 `templates/tools.tsv.tmpl` and bind-mounted read-only into every tenant at
 `/etc/vswarm-tooling/tools.tsv`) is the single source of truth. Releases are
 installed side by side under `/opt/vswarm-tooling` and selected through links
