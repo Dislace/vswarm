@@ -148,6 +148,38 @@ func TestRenderRemovesDepartedTenantRoutingAndToken(t *testing.T) {
 	}
 }
 
+func TestRenderWritesPlaceholderTenantFilesSoIncludeGlobsNeverMatchNothing(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain:    "code.example.com",
+		Image:     "vswarm/workspace:test",
+		Resources: config.Resources{CPUs: "1", Memory: "1g", Pids: 128},
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	for _, ext := range []string{".upstream", ".token"} {
+		p := filepath.Join(GeneratedDir, "angie", "tenants", "_default"+ext)
+		got := readFile(t, p)
+		if got != "\"\" \"\";\n" {
+			t.Errorf("%s = %q, want a no-op map entry %q", p, got, "\"\" \"\";\n")
+		}
+	}
+
+	// A second render with tenants must not prune the placeholder.
+	c.Tenants = []config.Tenant{{Email: "alice@example.com", Name: "alice"}}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	c.Tenants = nil
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(GeneratedDir, "angie", "tenants", "_default.upstream")); err != nil {
+		t.Errorf("placeholder pruned: %v", err)
+	}
+}
+
 func TestRenderBacksTenantHomeWithVolumesNotABindMount(t *testing.T) {
 	chdirTemp(t)
 	c := &config.Config{

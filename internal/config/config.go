@@ -467,9 +467,21 @@ func sortedKeys(m map[string]string) []string {
 }
 
 func stripComment(s string) string {
+	var inSingle, inDouble bool
 	for i := 0; i < len(s); i++ {
-		if s[i] == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
-			return s[:i]
+		switch s[i] {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '#':
+			if !inSingle && !inDouble && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
+				return s[:i]
+			}
 		}
 	}
 	return s
