@@ -87,6 +87,50 @@ tenants:
 	}
 }
 
+func TestStripCommentKeepsHashesInsideQuotes(t *testing.T) {
+	// unquote() strips one outer quote pair and nothing else -- the format
+	// has no escape sequences, so a quote character always toggles state.
+	cases := []struct {
+		name, in, want string
+	}{
+		{"unquoted comment", `image: reg/img:v1 # pinned`, `image: reg/img:v1 `},
+		{"full-line comment", `# a comment`, ``},
+		{"hash in double quotes", `repo_base: "git@host.com:#org/"`, `repo_base: "git@host.com:#org/"`},
+		{"hash after space in double quotes", `note: "issue #1"`, `note: "issue #1"`},
+		{"hash in single quotes", `repo_base: 'git@host.com:#org/'`, `repo_base: 'git@host.com:#org/'`},
+		{"trailing comment after quoted value", `repo_base: "a#b" # note`, `repo_base: "a#b" `},
+		{"single quote inside double quotes", `note: "it's #1" # tail`, `note: "it's #1" `},
+		{"hash glued to text is not a comment", `value: a#b`, `value: a#b`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stripComment(tc.in); got != tc.want {
+				t.Errorf("stripComment(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseKeepsQuotedValuesContainingHash(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	input := `domain: code.example.com
+repo_base: "git@host.com:#org/" # tail comment
+tenants:
+  - email: alice@example.com
+    name: alice
+`
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse(path)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if c.RepoBase != "git@host.com:#org/" {
+		t.Errorf("repo_base = %q, want the quoted # kept and the trailing comment stripped", c.RepoBase)
+	}
+}
+
 func TestParseRejectsUnknownService(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tenants.yaml")
 	in := "domain: code.example.com\ntenants:\n  - email: a@example.com\n    name: a\n    services: [postgres, mongo]\n"

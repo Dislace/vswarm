@@ -213,7 +213,15 @@ func Render(c *config.Config) error {
 		}
 	}
 
-	want := map[string]bool{}
+	// angie treats an include glob that matches nothing as a fatal boot
+	// error, so the map blocks always get one no-op placeholder entry.
+	want := map[string]bool{"_default": true}
+	for _, ext := range []string{".upstream", ".token"} {
+		p := filepath.Join(GeneratedDir, "angie", "tenants", "_default"+ext)
+		if err := os.WriteFile(p, []byte("\"\" \"\";\n"), 0o644); err != nil {
+			return err
+		}
+	}
 	for _, t := range v.Tenants {
 		want[t.Name] = true
 		line := fmt.Sprintf("%q %q;\n", t.Email, "vswarm_"+t.Name)
