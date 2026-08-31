@@ -25,7 +25,7 @@ const (
 
 	// T3Version pins the workspace's t3 release in both the image bootstrap
 	// and the tooling manifest; the reconciler takes over from there.
-	T3Version = "0.0.37"
+	T3Version = "0.0.38-nightly.20260831.1240"
 
 	DBMemory = "1g"
 
