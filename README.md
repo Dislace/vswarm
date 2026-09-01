@@ -4,8 +4,8 @@ VibeSwarm provides isolated browser-based development workspaces for trusted tea
 
 ## Workspace tooling
 
-The stock workspace includes t3, Claude Code, Codex, OpenCode, Bun, the
-Infisical CLI, and Go. Tool versions
+The stock workspace includes t3, Claude Code, Codex, OpenCode, Bun and Go.
+Tool versions
 are pinned in one place — the manifest at `templates/tools.tsv.tmpl` — which is
 rendered into `generated/image/tools.tsv` and bind-mounted read-only into every
 tenant. There is no update command: a background reconciler in each workspace

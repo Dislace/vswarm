@@ -182,6 +182,32 @@ test ! -e "${test_root}/state/releases/claude/0.0.1"
 test ! -e "${test_root}/state/releases/claude/2.1.0"
 test -x "${test_root}/state/releases/claude/2.2.0/bin/claude"
 
+# A tool the manifest no longer declares is retired: its release tree and the
+# links pointing into it go, so dropping a line is enough to remove the tool.
+mkdir -p "${test_root}/state/releases/retired/9.9.9/vswarm-bin"
+printf '#!/usr/bin/env bash\n' >"${test_root}/state/releases/retired/9.9.9/vswarm-bin/retired"
+chmod 0755 "${test_root}/state/releases/retired/9.9.9/vswarm-bin/retired"
+ln -sf "${test_root}/state/releases/retired/9.9.9/vswarm-bin/retired" \
+  "${test_root}/bin/retired"
+"${updater}" | grep -F 'retired: removed, the manifest no longer declares it'
+test ! -e "${test_root}/state/releases/retired"
+test ! -e "${test_root}/bin/retired"
+# The undeclared plain binary is still not a symlink into a release, so it stays.
+test -x "${test_root}/bin/some-undeclared"
+
+# An in-use release of a dropped tool is retained rather than pulled out from
+# under the process holding it.
+mkdir -p "${test_root}/state/releases/busy/1.0.0/bin"
+cp /bin/sleep "${test_root}/state/releases/busy/1.0.0/bin/busy"
+"${test_root}/state/releases/busy/1.0.0/bin/busy" 120 &
+busy_pid=$!
+"${updater}" | grep -F 'busy: retained in-use 1.0.0, dropped from the manifest'
+test -x "${test_root}/state/releases/busy/1.0.0/bin/busy"
+kill "${busy_pid}"
+wait "${busy_pid}" 2>/dev/null || true
+"${updater}" >/dev/null
+test ! -e "${test_root}/state/releases/busy"
+
 marker="${test_root}/manifest-executed"
 # shellcheck disable=SC2016
 printf 'oops|npm|pkg|tool|1.2.3|$(touch %s)\n' "${marker}" >"${test_root}/malicious.tsv"
