@@ -437,20 +437,44 @@ func TestRenderPublishesDeclaredMountsReadOnly(t *testing.T) {
 }
 
 func TestSubnetPrefersTheDeclaredNetID(t *testing.T) {
-	declared := config.Tenant{Name: "b", Email: "b@example.com", NetID: 42}
-	if got := netID(declared, 0); got != 42 {
-		t.Fatalf("netID = %d, want the declared 42", got)
+	c := &config.Config{Tenants: []config.Tenant{
+		{Name: "a", Email: "a@example.com"},
+		{Name: "b", Email: "b@example.com", NetID: 42},
+		{Name: "c", Email: "c@example.com"},
+	}}
+	if err := c.AssignNetIDs(); err != nil {
+		t.Fatal(err)
 	}
-
 	// A roster that has not adopted net_id must render exactly as before.
-	for position, want := range map[int]int{0: 10, 1: 11, 5: 15} {
-		if got := netID(config.Tenant{Name: "a"}, position); got != want {
-			t.Fatalf("position %d: netID = %d, want %d", position, got, want)
-		}
+	if c.Tenants[0].NetID != 10 || c.Tenants[2].NetID != 12 {
+		t.Fatalf("undeclared tenants got %d and %d, want 10 and 12",
+			c.Tenants[0].NetID, c.Tenants[2].NetID)
 	}
+	if c.Tenants[1].NetID != 42 {
+		t.Fatalf("declared net_id = %d, want 42", c.Tenants[1].NetID)
+	}
+}
 
-	// Removing a tenant ahead of a declared one must not move its subnet.
-	if got := netID(declared, 3); got != 42 {
-		t.Fatalf("netID = %d; a declared octet must not follow roster position", got)
+func TestRenderKeepsADeclaredSubnetWhenAnEarlierTenantLeaves(t *testing.T) {
+	c := &config.Config{Tenants: []config.Tenant{
+		{Name: "a", Email: "a@example.com", NetID: 10},
+		{Name: "b", Email: "b@example.com", NetID: 11},
+		{Name: "c", Email: "c@example.com", NetID: 12},
+	}}
+	before := buildView(c).Tenants[2].Subnet
+
+	c.RemoveTenant("b")
+	if err := c.AssignNetIDs(); err != nil {
+		t.Fatal(err)
+	}
+	after := buildView(c).Tenants[1]
+	if after.Name != "c" {
+		t.Fatalf("survivor = %q, want c", after.Name)
+	}
+	if after.Subnet != before {
+		t.Fatalf("subnet moved from %s to %s when an earlier tenant was removed", before, after.Subnet)
+	}
+	if after.Subnet != "172.31.12.0/24" {
+		t.Fatalf("subnet = %s, want 172.31.12.0/24", after.Subnet)
 	}
 }
