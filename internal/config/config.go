@@ -383,7 +383,46 @@ func (c *Config) Tenant(name string) (Tenant, bool) {
 
 func (c *Config) AddTenant(email, name string) error {
 	c.Tenants = append(c.Tenants, Tenant{Email: email, Name: name})
-	return c.Validate()
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	return c.AssignNetIDs()
+}
+
+// AssignNetIDs gives a net_id to every tenant that declared none, preferring the
+// octet its roster position already renders so adopting this renumbers nothing.
+// A declared id is never moved: keeping it across roster edits is the point.
+func (c *Config) AssignNetIDs() error {
+	taken := map[int]bool{}
+	for _, t := range c.Tenants {
+		if t.NetID != 0 {
+			taken[t.NetID] = true
+		}
+	}
+	for i := range c.Tenants {
+		if c.Tenants[i].NetID != 0 {
+			continue
+		}
+		id, err := freeNetID(taken, i)
+		if err != nil {
+			return fmt.Errorf("tenant %q: %w", c.Tenants[i].Name, err)
+		}
+		c.Tenants[i].NetID = id
+		taken[id] = true
+	}
+	return nil
+}
+
+func freeNetID(taken map[int]bool, position int) (int, error) {
+	if want := MinNetID + position; want <= MaxNetID && !taken[want] {
+		return want, nil
+	}
+	for id := MinNetID; id <= MaxNetID; id++ {
+		if !taken[id] {
+			return id, nil
+		}
+	}
+	return 0, fmt.Errorf("no free net_id in %d-%d", MinNetID, MaxNetID)
 }
 
 func (c *Config) RemoveTenant(name string) bool {
@@ -449,6 +488,9 @@ func (c *Config) Save() error {
 		}
 		if t.Admin {
 			b.WriteString("    admin: true\n")
+		}
+		if t.NetID != 0 {
+			fmt.Fprintf(&b, "    net_id: %d\n", t.NetID)
 		}
 		if len(t.Repos) > 0 {
 			fmt.Fprintf(&b, "    repos: [%s]\n", strings.Join(t.Repos, ", "))

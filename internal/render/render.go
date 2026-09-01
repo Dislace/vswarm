@@ -33,8 +33,8 @@ const (
 	// net_id, falling back to 10+position for rosters that do not. The same
 	// octet authorizes that tenant's admin key on the host (core/infra), so
 	// deriving it from position moved an access-control boundary onto another
-	// tenant whenever one was removed. The cap bounds the fallback.
-	MaxTenants = 245
+	// tenant whenever one was removed. The cap is the size of the octet range.
+	MaxTenants = config.MaxNetID - config.MinNetID + 1
 
 	HomeDir  = config.HomeDir
 	CacheDir = config.CacheDir
@@ -134,13 +134,13 @@ func buildView(c *config.Config) view {
 		Driver:          driverOr(c.Storage.Driver),
 		DriverOpts:      sortedOpts(c.Storage.Opts),
 	}
-	for i, t := range c.Tenants {
+	for _, t := range c.Tenants {
 		tv := tenantView{
 			Name:        t.Name,
 			Email:       t.Email,
 			Container:   "vswarm-" + t.Name,
 			Net:         "vswarm-net-" + t.Name,
-			Subnet:      fmt.Sprintf("172.31.%d.0/24", netID(t, i)),
+			Subnet:      fmt.Sprintf("172.31.%d.0/24", t.NetID),
 			WorkVolume:  WorkVolume(t.Name),
 			CacheVolume: CacheVolume(t.Name),
 		}
@@ -167,6 +167,9 @@ func Render(c *config.Config) error {
 	}
 	if len(c.Tenants) > MaxTenants {
 		return fmt.Errorf("%d tenants exceeds the maximum of %d (subnet space exhausted)", len(c.Tenants), MaxTenants)
+	}
+	if err := c.AssignNetIDs(); err != nil {
+		return err
 	}
 	v := buildView(c)
 
@@ -277,15 +280,6 @@ func resolvePGPassword(name string) (string, error) {
 		return "", err
 	}
 	return pw, os.Chmod(p, 0o600)
-}
-
-// netID prefers the octet the roster declares. Position is the fallback, so a
-// roster that has not adopted net_id renders exactly as it did before.
-func netID(t config.Tenant, position int) int {
-	if t.NetID != 0 {
-		return t.NetID
-	}
-	return config.MinNetID + position
 }
 
 func driverOr(d string) string {
