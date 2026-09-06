@@ -191,6 +191,19 @@ password out of the old `~/.pg.env` into `config/<name>/pg.password`, and
 delete anything. `--keep-derived` copies the caches too if you would rather
 not re-warm them.
 
+### Installing a release
+
+Tagging `vX.Y.Z` publishes both artifacts, and a deployment consumes them the
+way it consumes any other pinned upstream — a version, a URL, a checksum:
+
+| Artifact | Where | Pin with |
+| --- | --- | --- |
+| `vswarm-linux-amd64`, `vswarm-linux-arm64` | GitHub release `vX.Y.Z` | the release's `SHA256SUMS` asset |
+| `ghcr.io/dislace/vswarm-workspace:vX.Y.Z` | GHCR | the digest in the release's `workspace-image.txt` asset |
+
+`vswarm version` prints the tag the binary was built from, so a role can check
+what is installed before fetching anything.
+
 ### The workspace image
 
 The image is an **input**, not something a deployment produces. `image/` in

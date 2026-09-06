@@ -22,6 +22,10 @@ const (
 	sessionIssueBackoff  = 2 * time.Second
 )
 
+// version is stamped by the release build. A deployment installs a pinned
+// binary and needs to tell what it already has without fetching it again.
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -53,6 +57,9 @@ func main() {
 		err = cmdProvision(os.Args[2:])
 	case "migrate":
 		err = cmdMigrate(os.Args[2:])
+	case "version", "--version":
+		fmt.Println(version)
+		return
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -96,6 +103,7 @@ COMMANDS
   status                   docker compose ps
   logs [tenant]            follow logs (proxy by default)
   doctor                   verify isolation + config invariants
+  version                  print the release this binary was built from
 `)
 }
 
