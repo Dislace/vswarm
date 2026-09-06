@@ -57,7 +57,6 @@ type Storage struct {
 type Config struct {
 	Domain          string
 	Image           string
-	ImageOverlay    string
 	DBImage         string
 	PlaywrightImage string
 	Team            string
@@ -77,15 +76,14 @@ type Config struct {
 // because mount validation has to keep declared mounts off them, and the
 // compose template renders from the same constants so the two cannot drift.
 const (
-	HomeDir         = "/home/ai-agent"
-	CacheDir        = HomeDir + "/.cache"
-	ToolingManifest = "/etc/vswarm-tooling/tools.tsv"
-	RunDir          = "/run"
+	HomeDir  = "/home/ai-agent"
+	CacheDir = HomeDir + "/.cache"
+	RunDir   = "/run"
 )
 
 // ReservedTargets is every container path a workspace mounts on its own. A
 // declared mount may not take one, shadow one, or sit under one.
-var ReservedTargets = []string{HomeDir, CacheDir, ToolingManifest, RunDir}
+var ReservedTargets = []string{HomeDir, CacheDir, RunDir}
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
@@ -93,7 +91,6 @@ var knownServices = map[string]bool{"postgres": true, "playwright": true}
 
 func Default() *Config {
 	return &Config{
-		Image:           "vswarm/workspace:latest",
 		DBImage:         "postgres:18.4",
 		PlaywrightImage: "zenika/alpine-chrome:124",
 		Resources:       Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
@@ -130,9 +127,6 @@ func Parse(path string) (*Config, error) {
 				if val != "" {
 					c.Image = unquote(val)
 				}
-				section = ""
-			case "image_overlay":
-				c.ImageOverlay = unquote(val)
 				section = ""
 			case "db_image":
 				if val != "" {
@@ -304,6 +298,12 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Domain) == "" {
 		return fmt.Errorf("domain is required")
 	}
+	// The image is built and published somewhere else, so there is no
+	// defensible default: a host that names none would silently run whatever
+	// `vswarm/workspace:latest` happens to mean on that machine.
+	if strings.TrimSpace(c.Image) == "" {
+		return fmt.Errorf("image is required — name the published workspace image")
+	}
 	if strings.TrimSpace(c.Storage.Driver) == "" {
 		c.Storage.Driver = "local"
 	}
@@ -444,9 +444,6 @@ func (c *Config) Save() error {
 	b.WriteString("# VibeSwarm tenant manifest (managed by `vswarm`).\n")
 	fmt.Fprintf(&b, "domain: %s\n", c.Domain)
 	fmt.Fprintf(&b, "image: %s\n", c.Image)
-	if c.ImageOverlay != "" {
-		fmt.Fprintf(&b, "image_overlay: %s\n", c.ImageOverlay)
-	}
 	if c.DBImage != "" {
 		fmt.Fprintf(&b, "db_image: %s\n", c.DBImage)
 	}

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -89,5 +92,120 @@ func TestDeliverScriptResetsVolumeRootAndRequiresBash(t *testing.T) {
 	}
 	if strings.Contains(deliverScript, "read -r -d ''") && !strings.Contains(deliverScript, "set -euo pipefail") {
 		t.Error("script relies on a bashism, so it must be run under bash")
+	}
+}
+
+func TestStagedPathsListsFilesRelativeToTheStageRoot(t *testing.T) {
+	stage := t.TempDir()
+	for _, p := range []string{".pg.env", ".config/vswarm/repos", ".ssh/vswarm-admin"} {
+		full := filepath.Join(stage, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(stage, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := stagedPaths(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".config/vswarm/repos", ".pg.env", ".ssh/vswarm-admin"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("stagedPaths() = %v, want %v (directories must not be listed; removing one takes the tenant's files with it)", got, want)
+	}
+}
+
+func TestStaleProvisionedNeverNamesAPathVswarmDidNotDeliver(t *testing.T) {
+	previous := []string{".pg.env", ".config/dislace/retired.env"}
+	staged := []string{".pg.env", ".config/vswarm/repos"}
+
+	got := staleProvisioned(previous, staged)
+	if !reflect.DeepEqual(got, []string{".config/dislace/retired.env"}) {
+		t.Fatalf("staleProvisioned() = %v, want only the path that left the staging tree", got)
+	}
+
+	// The safety property: everything eligible for removal came from the
+	// previous list. A file the tenant made is not in it and cannot be named.
+	was := map[string]bool{}
+	for _, p := range previous {
+		was[p] = true
+	}
+	for _, p := range got {
+		if !was[p] {
+			t.Fatalf("staleProvisioned() named %q, which vswarm never delivered", p)
+		}
+	}
+}
+
+func TestStaleProvisionedDropsEntriesThatEscapeTheTenantHome(t *testing.T) {
+	// The list lives in a volume the tenant can write, so a tampered entry
+	// must not turn provisioning into an arbitrary delete.
+	previous := []string{
+		"/etc/passwd",
+		"../../etc/shadow",
+		"..",
+		".ssh/../../../root/.ssh/authorized_keys",
+		".pg.env",
+	}
+	got := staleProvisioned(previous, nil)
+	if !reflect.DeepEqual(got, []string{".pg.env"}) {
+		t.Fatalf("staleProvisioned() = %v, want only the entry inside the tenant home", got)
+	}
+}
+
+func TestProvisionedListRoundTripsAndSkipsItsOwnHeader(t *testing.T) {
+	paths := []string{".config/vswarm/repos", ".pg.env"}
+	got := parseProvisioned(formatProvisioned(paths))
+	if !reflect.DeepEqual(got, paths) {
+		t.Fatalf("round trip = %v, want %v", got, paths)
+	}
+	if parseProvisioned(formatProvisioned(nil)) != nil {
+		t.Error("an empty list must parse back to nothing, not to a header line")
+	}
+	if got := parseProvisioned("  .pg.env  \n\n# a comment\n"); !reflect.DeepEqual(got, []string{".pg.env"}) {
+		t.Errorf("parseProvisioned() = %v, want the blank line and comment dropped", got)
+	}
+}
+
+func TestRevokeFilesNeverRecurses(t *testing.T) {
+	// A provisioned path that is a directory today is one the tenant made.
+	args := volumeRunArgs("vswarm/workspace:latest", "rm",
+		[]string{"-v", "vswarm-work-x:/dst"}, []string{"-f", "/dst/.pg.env"})
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "-rf") || strings.Contains(joined, "-r ") {
+		t.Fatalf("declarative removal must not recurse: %q", joined)
+	}
+	if !strings.Contains(joined, "-f /dst/.pg.env") {
+		t.Fatalf("unexpected argv: %q", joined)
+	}
+}
+
+func TestWriteProvisionedKeepsTheListOutOfItsOwnContents(t *testing.T) {
+	stage := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stage, ".pg.env"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := stagedPaths(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeProvisioned(stage, staged); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(stage, filepath.FromSlash(provisionedList)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Listing itself would make the list stale the moment it moved, and the
+	// next provision would delete the record of what it had delivered.
+	for _, p := range parseProvisioned(string(body)) {
+		if p == provisionedList {
+			t.Fatal("the list must not name itself")
+		}
 	}
 }

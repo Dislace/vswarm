@@ -1,7 +1,8 @@
 
 domain: t3code.example.com
 
-image: vswarm/workspace:latest
+# Required: the published workspace image. CI publishes one per release.
+image: ghcr.io/dislace/vswarm-workspace:v0.1.0
 
 db_image: postgres:18.4
 

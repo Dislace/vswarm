@@ -22,6 +22,10 @@ const (
 	sessionIssueBackoff  = 2 * time.Second
 )
 
+// version is stamped by the release build. A deployment installs a pinned
+// binary and needs to tell what it already has without fetching it again.
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -34,17 +38,17 @@ func main() {
 	case "render":
 		err = cmdRender()
 	case "up":
-		err = cmdUp()
+		err = cmdUp(os.Args[2:])
 	case "down":
 		err = cmdDown()
 	case "build":
 		err = cmdBuild()
 	case "status":
-		err = cmdStatus()
+		err = cmdStatus(os.Args[2:])
 	case "logs":
 		err = cmdLogs(os.Args[2:])
 	case "doctor":
-		err = cmdDoctor()
+		err = cmdDoctor(os.Args[2:])
 	case "tenant":
 		err = cmdTenant(os.Args[2:])
 	case "pair":
@@ -53,6 +57,9 @@ func main() {
 		err = cmdProvision(os.Args[2:])
 	case "migrate":
 		err = cmdMigrate(os.Args[2:])
+	case "version", "--version":
+		fmt.Println(version)
+		return
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -75,24 +82,31 @@ USAGE
 
 COMMANDS
   init                     scaffold tenants.yaml, .env, config/ (idempotent)
-  render                   tenants.yaml -> generated/ (compose + angie + image)
-  build                    build the workspace image from generated/image
-                           (+ the image_overlay layer when configured)
-  up                       render, start the stack, provision every tenant token
+  render                   tenants.yaml -> generated/ (compose + angie)
+  build                    build ./image and tag it with the image: from
+                           tenants.yaml (vswarm checkout only; hosts pull)
+  up                       render, start the stack, provision + pair every tenant
+                           (--json reports what each container did: created,
+                            recreated, unchanged or absent)
   down                     stop the stack
   tenant add <email> <name>   add a tenant; start + pair it   (--no-up to skip)
   tenant rm <name>            remove a tenant                  (--purge to wipe data)
   tenant ls                   list tenants + container status
   pair <name>              (re)mint a tenant's T3 token and inject it into angie
-  provision <name>         deliver credentials into a tenant's work volume
-                           (--from <dir> stages a tree the deployment layer built,
-                            --remove <rel-path> revokes one, repeatable)
+  provision <name>         make a tenant's work volume match a staging tree
+                           (--from <dir> is the desired state: what it holds is
+                            delivered, what vswarm delivered before and it no
+                            longer holds is taken back, and nothing the tenant
+                            made is touched. --remove <rel-path> is an escape
+                            hatch for paths vswarm never delivered, repeatable)
   migrate <name>           copy a legacy config/<name>/home bind mount into the
                            work volume, dropping rebuildable caches
                            (--keep-derived copies them too)
-  status                   docker compose ps
+  status                   docker compose ps                       (--json)
   logs [tenant]            follow logs (proxy by default)
   doctor                   verify isolation + config invariants
+                           (--wait=30s retries until they pass or time out)
+  version                  print the release this binary was built from
 `)
 }
 
@@ -125,7 +139,7 @@ func cmdInit() error {
 	if err := os.MkdirAll("config", 0o755); err != nil {
 		return err
 	}
-	fmt.Println("next: edit tenants.yaml + .env, then `vswarm build && vswarm up`")
+	fmt.Println("next: edit tenants.yaml + .env (set `image:` to a published tag), then `vswarm up`")
 	return nil
 }
 
@@ -141,7 +155,8 @@ func cmdRender() error {
 	return nil
 }
 
-func cmdUp() error {
+func cmdUp(args []string) error {
+	_, asJSON := takeJSON(args)
 	c, err := loadConfig()
 	if err != nil {
 		return err
@@ -149,9 +164,11 @@ func cmdUp() error {
 	if err := render.Render(c); err != nil {
 		return err
 	}
-	if err := dockerx.Compose("up", "-d", "--remove-orphans"); err != nil {
+	before := containerIDs()
+	if err := dockerx.ComposeTo(humanOut, "up", "-d", "--remove-orphans"); err != nil {
 		return err
 	}
+	report := classifyUp(stackContainers(c), before, containerIDs())
 	if err := runParallel(len(c.Tenants), func(i int) error {
 		t := c.Tenants[i]
 		if err := provisionTenant(c, t.Name, ""); err != nil {
@@ -169,47 +186,42 @@ func cmdUp() error {
 			return err
 		}
 	}
-	fmt.Println("up: stack running, all tenants provisioned")
+	fmt.Fprintln(humanOut, "up: stack running, all tenants provisioned")
+	if asJSON {
+		return emitJSON(report)
+	}
 	return nil
 }
 
 func cmdDown() error { return dockerx.Compose("down") }
+
+// imageContext is the committed build context. The image is an input to a
+// deployment, not something a deployment renders: CI builds this directory and
+// publishes the result, and a host names the published tag in `image:`.
+const imageContext = "image"
 
 func cmdBuild() error {
 	c, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	if err := render.Render(c); err != nil {
-		return err
+	if _, err := os.Stat(filepath.Join(imageContext, "Dockerfile")); err != nil {
+		return fmt.Errorf("no build context at ./%s — `build` runs from a vswarm checkout; "+
+			"a deployment pulls the published image named by `image:`", imageContext)
 	}
-	if c.ImageOverlay == "" {
-		return dockerx.Run("docker", "build", "-t", c.Image, "generated/image")
-	}
-
-	if _, err := os.Stat(c.ImageOverlay); err != nil {
-		return fmt.Errorf("image_overlay %q: %w", c.ImageOverlay, err)
-	}
-	base := baseImageTag(c.Image)
-	if err := dockerx.Run("docker", "build", "-t", base, "generated/image"); err != nil {
-		return err
-	}
-	return dockerx.Run("docker", "build",
-		"-t", c.Image,
-		"-f", c.ImageOverlay,
-		"--build-arg", "VSWARM_BASE_IMAGE="+base,
-		filepath.Dir(c.ImageOverlay))
+	return dockerx.Run("docker", "build", "-t", c.Image, imageContext)
 }
 
-func baseImageTag(image string) string {
-	slash := strings.LastIndex(image, "/")
-	if colon := strings.LastIndex(image, ":"); colon > slash {
-		return image + "-base"
+func cmdStatus(args []string) error {
+	if _, asJSON := takeJSON(args); asJSON {
+		c, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		return emitJSON(stackStatus(c))
 	}
-	return image + ":base"
+	return dockerx.Compose("ps")
 }
-
-func cmdStatus() error { return dockerx.Compose("ps") }
 
 func cmdLogs(args []string) error {
 	svc := proxyContainer
@@ -333,7 +345,7 @@ func truncate(s string, n int) string {
 
 const defaultTenants = `# VibeSwarm tenant manifest — the only file you edit by hand.
 domain: t3code.example.com
-image: vswarm/workspace:latest
+image: ghcr.io/dislace/vswarm-workspace:latest
 resources:
   cpus: "2.0"
   memory: 6g

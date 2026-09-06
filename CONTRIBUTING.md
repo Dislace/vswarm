@@ -23,12 +23,12 @@ Run the same checks CI runs:
 make fmtcheck     # gofmt -l must be empty
 make vet          # go vet ./...
 make build        # must compile
-make lint         # shellcheck + hadolint on the templates (if installed)
+make lint         # shellcheck + hadolint on ./image (if installed)
 ```
 
 CI (`.github/workflows/ci.yml`) enforces `gofmt`, `go vet`, `go build`,
-`hadolint` on `templates/Dockerfile.tmpl`, and `shellcheck` on the shell
-templates and `scripts/`.
+`hadolint` on `image/Dockerfile`, and `shellcheck` on the image scripts
+and `scripts/`.
 
 ## Conventions
 

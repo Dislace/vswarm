@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dislace/vswarm/internal/config"
 	"github.com/dislace/vswarm/internal/dockerx"
@@ -28,11 +29,85 @@ func tenantChecks(c *config.Config, fn func(t config.Tenant) checkResult) []chec
 	return rs
 }
 
-func cmdDoctor() error {
+// cmdDoctor retries the whole check set until it passes or --wait runs out.
+// The checks watch a stack that is still settling — a workspace becomes
+// healthy, a token starts authenticating — so callers were wrapping doctor in
+// their own retry loop and could only re-run the slow parts blind.
+func cmdDoctor(args []string) error {
+	rest, wait, err := takeDuration(args, "--wait")
+	if err != nil {
+		return err
+	}
+	if len(rest) > 0 {
+		return fmt.Errorf("usage: vswarm doctor [--wait=<duration>]")
+	}
 	c, err := loadConfig()
 	if err != nil {
 		return err
 	}
+
+	deadline := time.Now().Add(wait)
+	for {
+		results := doctorChecks(c)
+		last := time.Now().After(deadline)
+		if doctorPassed(results) || last {
+			return reportDoctor(results)
+		}
+		time.Sleep(doctorRetryBackoff)
+	}
+}
+
+const doctorRetryBackoff = 3 * time.Second
+
+// takeDuration pulls --name=<duration> out of an argument list. A zero
+// duration is the default and means one pass, which is what doctor did before.
+func takeDuration(args []string, name string) ([]string, time.Duration, error) {
+	var rest []string
+	var d time.Duration
+	for _, a := range args {
+		raw, ok := strings.CutPrefix(a, name+"=")
+		if !ok {
+			rest = append(rest, a)
+			continue
+		}
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, 0, fmt.Errorf("%s=%q: %w", name, raw, err)
+		}
+		d = parsed
+	}
+	return rest, d, nil
+}
+
+func doctorPassed(results []checkResult) bool {
+	for _, r := range results {
+		if r.name != "" && !r.pass {
+			return false
+		}
+	}
+	return true
+}
+
+func reportDoctor(results []checkResult) error {
+	ok := true
+	for _, r := range results {
+		if r.name == "" {
+			continue
+		}
+		mark := "PASS"
+		if !r.pass {
+			mark, ok = "FAIL", false
+		}
+		fmt.Printf("[%s] %s%s\n", mark, r.name, detailSuffix(r.detail))
+	}
+	if !ok {
+		return fmt.Errorf("doctor: one or more checks FAILED")
+	}
+	fmt.Println("doctor: all checks passed")
+	return nil
+}
+
+func doctorChecks(c *config.Config) []checkResult {
 	var results []checkResult
 	check := func(name string, pass bool, detail string) {
 		results = append(results, checkResult{name, pass, detail})
@@ -157,24 +232,9 @@ func cmdDoctor() error {
 		results = append(results, rs...)
 	}
 
-	ok := true
-	for _, r := range results {
-		if r.name == "" {
-			continue
-		}
-		mark := "PASS"
-		if !r.pass {
-			mark, ok = "FAIL", false
-		}
-		fmt.Printf("[%s] %s%s\n", mark, r.name, detailSuffix(r.detail))
-	}
-
-	if !ok {
-		return fmt.Errorf("doctor: one or more checks FAILED")
-	}
-	fmt.Println("doctor: all checks passed")
-	return nil
+	return results
 }
+
 func anyPublishedPorts() (bool, string) {
 	out, err := dockerx.Output("docker", "ps", "--filter", "name=vswarm-", "--format", "{{.Names}} {{.Ports}}")
 	if err != nil {

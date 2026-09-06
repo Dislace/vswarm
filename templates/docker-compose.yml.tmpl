@@ -68,7 +68,6 @@ services:
     volumes:
       - {{.WorkVolume}}:{{$.HomeDir}}
       - {{.CacheVolume}}:{{$.CacheDir}}
-      - ./generated/image/tools.tsv:{{$.ToolingManifest}}:ro
 {{- range $.Mounts}}
       - {{.Source}}:{{.Target}}:ro
 {{- end}}

@@ -4,6 +4,3 @@ export NPM_CONFIG_PREFIX="$HOME/.local"
 if [ -n "$VSWARM_USER" ]; then
   PS1='\[\e[1;32m\]'"$VSWARM_USER"'@\h\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
 fi
-# Converge workspace tooling to the manifest in the background; a no-op when
-# everything already matches.
-setsid /usr/local/bin/vswarm-tooling >/dev/null 2>&1 </dev/null &

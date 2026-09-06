@@ -80,41 +80,10 @@ func TestRenderProducesIsolatedTenantConfiguration(t *testing.T) {
 		t.Error("angie.conf still forces Connection: close on non-websocket requests")
 	}
 
-	entrypoint := filepath.Join(GeneratedDir, "image", "entrypoint.sh")
-	info, err := os.Stat(entrypoint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o755 {
-		t.Fatalf("entrypoint mode = %o, want 755", got)
-	}
-
-	tooling := filepath.Join(GeneratedDir, "image", "vswarm-tooling")
-	info, err = os.Stat(tooling)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o755 {
-		t.Fatalf("vswarm-tooling mode = %o, want 755", got)
-	}
-	reconcile := filepath.Join(GeneratedDir, "image", "vswarm-codex-state-reconcile")
-	info, err = os.Stat(reconcile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o755 {
-		t.Fatalf("vswarm-codex-state-reconcile mode = %o, want 755", got)
-	}
-	manifest := readFile(t, filepath.Join(GeneratedDir, "image", "tools.tsv"))
-	for _, want := range []string{
-		"claude|npm|@anthropic-ai/claude-code|claude|",
-		"codex|npm|@openai/codex|codex|",
-		"bun|npm|bun|bun|",
-		"go|go|go.dev|go|",
-	} {
-		if !strings.Contains(manifest, want) {
-			t.Errorf("generated tooling manifest missing %q", want)
-		}
+	// The image is an input, not an output: render must not write a build
+	// context for something CI already built and published.
+	if _, err := os.Stat(filepath.Join(GeneratedDir, "image")); !os.IsNotExist(err) {
+		t.Errorf("render still emits a build context under %s/image: %v", GeneratedDir, err)
 	}
 }
 
@@ -331,31 +300,10 @@ func assertFileEquals(t *testing.T, path, want string) {
 	}
 }
 
-func TestImageTemplatesAgreeWithTheCacheConstant(t *testing.T) {
-	chdirTemp(t)
-	c := &config.Config{
-		Domain:    "code.example.com",
-		Image:     "vswarm/workspace:test",
-		Resources: config.Resources{CPUs: "1", Memory: "1g", Pids: 128},
-		Tenants:   []config.Tenant{{Email: "alice@example.com", Name: "alice"}},
-	}
-	if err := Render(c); err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range []string{"Dockerfile", "entrypoint.sh"} {
-		body := readFile(t, filepath.Join(GeneratedDir, "image", f))
-		for _, sub := range []string{"npm", "bun", "go/mod", "go/build", "pip"} {
-			if !strings.Contains(body, CacheDir+"/"+sub) {
-				t.Errorf("%s does not create %s/%s", f, CacheDir, sub)
-			}
-		}
-	}
-}
-
 func TestRenderPlaywrightSidecarOnlyWhenDeclared(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tenants.yaml")
-	in := "domain: code.example.com\ntenants:\n" +
+	in := "domain: code.example.com\nimage: vswarm/workspace:test\ntenants:\n" +
 		"  - email: pw@example.com\n    name: pw\n    services: [playwright]\n" +
 		"  - email: plain@example.com\n    name: plain\n"
 	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
@@ -392,7 +340,7 @@ func TestRenderRejectsTooManyTenants(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tenants.yaml")
 	var b strings.Builder
-	b.WriteString("domain: code.example.com\ntenants:\n")
+	b.WriteString("domain: code.example.com\nimage: vswarm/workspace:test\ntenants:\n")
 	for i := 0; i < MaxTenants+1; i++ {
 		fmt.Fprintf(&b, "  - email: t%d@example.com\n    name: t%d\n", i, i)
 	}

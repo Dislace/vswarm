@@ -73,8 +73,8 @@ mounts:
 Each entry is published read-only into every workspace container. Both paths
 must be absolute and canonical, targets must be unique, and none may take,
 shadow or sit under a path the workspace already mounts — the tenant home, the
-cache, the tooling manifest, `/run`. `vswarm doctor` re-checks every declared
-mount inside each running workspace.
+cache, `/run`. `vswarm doctor` re-checks every declared mount inside each
+running workspace.
 
 Sources are otherwise unconstrained and Docker resolves them on the host, so a
 source is as trusted as whoever writes `tenants.yaml`; keep them inside one
@@ -130,6 +130,23 @@ then enforces the contract regardless of what the staging tree said: everything
 delivered is owned by uid 1000, `.ssh` is `0700`, files directly under `.ssh`
 are `0600`, and any `*.env` at the home root is `0600`.
 
+**The staging tree is the desired state.** A path it holds is delivered; a path
+vswarm delivered on an earlier run and the tree no longer holds is taken back.
+Retiring a credential is therefore deleting it from the staging tree — the
+deployment layer never carries a standing list of files that used to exist.
+
+What makes that safe is that vswarm removes only from its own record: each
+provision writes the list of paths it delivered to `~/.config/vswarm/provisioned`
+inside the work volume, and only a path in that list is ever eligible for
+removal. A file the tenant created is not in the list and cannot be taken. The
+removal is not recursive either, so a provisioned path the tenant has since
+replaced with a directory keeps its contents. A missing or unreadable list
+means nothing is removed: the failure mode is a file left behind.
+
+`--remove <rel-path>` still exists for whole trees vswarm never delivered — the
+one-time cleanup of anything provisioned before the list existed. It is not for
+standing use; a caller reaching for it repeatedly wants the staging tree instead.
+
 It also delivers `~/.pg.env` for postgres tenants on its own — `vswarm up` runs
 it for every tenant, so a fresh workspace gets its database contract with no
 extra step.
@@ -174,85 +191,52 @@ password out of the old `~/.pg.env` into `config/<name>/pg.password`, and
 delete anything. `--keep-derived` copies the caches too if you would rather
 not re-warm them.
 
-### Workspace image overlay (optional)
+### Installing a release
 
-To bake a deployment-specific toolchain into the workspace without forking
-`templates/Dockerfile.tmpl`, ship a Dockerfile alongside `tenants.yaml` and
-point `image_overlay:` at it:
+Tagging `vX.Y.Z` publishes both artifacts, and a deployment consumes them the
+way it consumes any other pinned upstream — a version, a URL, a checksum:
 
-```dockerfile
-ARG VSWARM_BASE_IMAGE
-FROM ${VSWARM_BASE_IMAGE}
-RUN npm install -g bun && apt-get update && apt-get install -y --no-install-recommends jq \
- && rm -rf /var/lib/apt/lists/*
-```
+| Artifact | Where | Pin with |
+| --- | --- | --- |
+| `vswarm-linux-amd64`, `vswarm-linux-arm64` | GitHub release `vX.Y.Z` | the release's `SHA256SUMS` asset |
+| `ghcr.io/dislace/vswarm-workspace:vX.Y.Z` | GHCR | the digest in the release's `workspace-image.txt` asset |
 
-`vswarm build` builds the stock image under `<image>-base`, then layers the
-overlay on top as the final `image:` tag. The overlay file's directory is its
-build context. A deployment layer driving `docker build` itself follows the
-same two-step contract.
+`vswarm version` prints the tag the binary was built from, so a role can check
+what is installed before fetching anything.
+
+### The workspace image
+
+The image is an **input**, not something a deployment produces. `image/` in
+this repo is a plain committed build context; CI builds it and publishes
+`ghcr.io/dislace/vswarm-workspace:<tag>`, and a host names that tag in
+`image:`. `image:` is required — there is no default, because a host that
+names none would run whatever the local daemon last tagged.
+
+`vswarm render` does not write a build context and `vswarm build` only works
+from a vswarm checkout, where it builds `./image` and tags it `image:`. A
+deployment layer never calls `build`; it pulls.
+
+To bake a deployment-specific toolchain in, build your own image `FROM` the
+published one and put your tag in `image:`. There is no overlay mechanism to
+learn: the config key already names any image you like.
 
 ### Workspace tooling
 
-The stock image manages t3, Claude Code, Codex, OpenCode, Bun and Go with
-`vswarm-tooling`. The manifest (`tools.tsv`, rendered from
-`templates/tools.tsv.tmpl` and bind-mounted read-only into every tenant at
-`/etc/vswarm-tooling/tools.tsv`) is the single source of truth. Releases are
-installed side by side under `/opt/vswarm-tooling` and selected through links
-in `/usr/local/bin`; switching a link verifies the staged CLI's reported
-version first and never touches a process already running from an old release.
+The image ships t3 and the base toolchain (git, gh, node, python3, build
+essentials, uv, vim). It does **not** manage agent CLIs. Install them the
+provider's own way from inside the workspace:
 
-There are no user-facing commands: `vswarm-tooling` is a reconciler that takes
-no arguments. It runs when a workspace boots, whenever an interactive shell
-opens (fire-and-forget), and on a periodic tick inside the entrypoint
-(`VSWARM_TOOLING_TICK`, default 3600s). Concurrent invocations serialize on a
-`flock`; a second one exits silently rather than erroring.
-
-Version flow: edit the pin in `templates/tools.tsv.tmpl`, merge, done — the
-next reconcile in each workspace installs the release and flips the symlink.
-t3 swaps the same way; its supervisor restarts the server onto the new binary
-at the next tick **only when no UI session is active** (busy workspaces are
-left untouched and retried). Rollback is reverting the manifest change; the
-reconciler re-downloads and re-flips.
-
-Only releases that are pinned or still referenced by a running process are
-kept; everything else is pruned. Npm packages use the registry's
-package-integrity verification and are checked again by executing the staged
-CLI. Go archives are matched against the filename and SHA-256 published by
-`go.dev` before extraction. The default paths require root, so reconciliation
-re-executes through the workspace's passwordless `sudo`.
-
-Devs can run any provider-native update (`claude update`, `bun upgrade`,
-`npm i -g …`) freely: home-directory installs live ahead of `/usr/local/bin`
-on PATH and shadow the fleet baseline until removed.
-
-The root-owned manifest is `/etc/vswarm-tooling/tools.tsv`. Each non-comment
-line has six pipe-delimited fields:
-
-```text
-name|provider|package/source|primary binary|approved version|extra binaries
+```bash
+npm i -g @anthropic-ai/claude-code @openai/codex
 ```
 
-Supported providers are `npm` and `go`; extra binaries are a comma-separated
-list or `-`. For example, a deployment overlay can add the Infisical CLI by
-copying a replacement manifest and reconciling it:
+`NPM_CONFIG_PREFIX` points at `~/.local`, which is on the tenant's work volume
+and ahead of `/usr/local/bin` on PATH, so a hand-installed CLI persists across
+container recreates and image bumps. Nothing in vswarm reconciles, prunes or
+version-checks these; the operator owns them.
 
-```text
-claude|npm|@anthropic-ai/claude-code|claude|<version>|-
-codex|npm|@openai/codex|codex|<version>|-
-bun|npm|bun|bun|<version>|-
-go|go|go.dev|go|<version>|gofmt
-infisical|npm|@infisical/cli|infisical|<version>|-
-```
-
-```dockerfile
-ARG VSWARM_BASE_IMAGE
-FROM ${VSWARM_BASE_IMAGE}
-COPY tools.tsv /etc/vswarm-tooling/tools.tsv
-RUN vswarm-tooling update all
-```
-
-The manifest is parsed strictly as data and is never sourced as shell.
+t3 itself is pinned in `image/Dockerfile` (`ARG T3_VERSION`, Renovate-tracked)
+because the workspace cannot serve without it. Moving it is a new image.
 
 ### Dev postgres sidecar (optional, per tenant)
 
@@ -358,11 +342,42 @@ ssh -i ~/.ssh/vswarm-admin ubuntu@172.31.10.1
 ## Commands the deployment layer runs
 
 ```bash
-vswarm build                       # build the workspace image from generated/image
-vswarm up                          # render + start + provision + pair every tenant (idempotent)
-vswarm provision <name> --from DIR # deliver staged credentials into the work volume
-vswarm doctor                      # gate: exits non-zero if any isolation invariant fails
+vswarm up --json                    # render + start + provision + pair (idempotent)
+vswarm provision <name> --from DIR  # make the work volume match the staging tree
+vswarm doctor --wait=60s            # gate: non-zero if any isolation invariant fails
 ```
+
+`vswarm build` is not one of these. A deployment pulls the published image.
+
+## Outputs / exit codes
+
+- All commands: `0` on success, non-zero on failure (safe for `changed_when`/
+  `failed_when`).
+- `vswarm doctor`: `0` only if every invariant PASSes — use it as a deploy gate.
+  `--wait=<duration>` re-runs the whole set until it passes or the deadline
+  expires, so the caller does not need a retry loop around it. Without it,
+  doctor makes one pass, as before.
+- `vswarm up --json` and `vswarm status --json` write a JSON document to
+  **stdout** and move progress prose to stderr. `up` reports one entry per
+  declared container:
+
+```json
+{
+  "changed": true,
+  "containers": [
+    {"container": "vswarm-proxy", "action": "unchanged", "id": "…"},
+    {"container": "vswarm-alice", "action": "recreated", "id": "…"},
+    {"container": "vswarm-db-alice", "action": "created", "id": "…"}
+  ]
+}
+```
+
+  `action` is `created`, `recreated`, `unchanged` or `absent`, and `changed` is
+  true for anything that is not `unchanged`. Use it directly for
+  `changed_when`; capturing container ids before and after `up` and diffing
+  them is what this replaces.
+- Rendered artifacts land in `generated/` (gitignored; contain per-tenant tokens
+  — treat as secret).
 
 Reconcile on change (add/remove users) by re-templating `tenants.yaml` and
 running `vswarm up` again, or targeted:
@@ -371,14 +386,6 @@ running `vswarm up` again, or targeted:
 vswarm tenant add <email> <name>   # adds + starts + pairs just that tenant
 vswarm tenant rm <name> --purge    # removes just that tenant
 ```
-
-## Outputs / exit codes
-
-- All commands: `0` on success, non-zero on failure (safe for `changed_when`/
-  `failed_when`).
-- `vswarm doctor`: `0` only if every invariant PASSes — use it as a deploy gate.
-- Rendered artifacts land in `generated/` (gitignored; contain per-tenant tokens
-  — treat as secret).
 
 ## Token rotation
 

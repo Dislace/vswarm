@@ -23,10 +23,6 @@ const (
 	PGPort       = "5432"
 	PWPort       = "9222"
 
-	// T3Version pins the workspace's t3 release in both the image bootstrap
-	// and the tooling manifest; the reconciler takes over from there.
-	T3Version = "0.0.39-nightly.20260904.1278"
-
 	DBMemory = "1g"
 
 	// A tenant's subnet is 172.31.<net_id>.0/24 where the roster declares
@@ -85,7 +81,6 @@ type view struct {
 	ProxyIP         string
 	ProxyPort       string
 	T3Port          string
-	T3Version       string
 	ManageTunnel    bool
 	EdgeExternal    bool
 	AnyPostgres     bool
@@ -94,7 +89,6 @@ type view struct {
 	HomeDir         string
 	CacheDir        string
 	CacheEnv        []kv
-	ToolingManifest string
 	RunDir          string
 	Mounts          []config.Mount
 	Driver          string
@@ -114,7 +108,6 @@ func buildView(c *config.Config) view {
 		DBMemory:        DBMemory,
 		PlaywrightImage: c.PlaywrightImage,
 		PWPort:          PWPort,
-		T3Version:       T3Version,
 		Team:            team,
 		CPUs:            c.Resources.CPUs,
 		Memory:          c.Resources.Memory,
@@ -128,7 +121,6 @@ func buildView(c *config.Config) view {
 		HomeDir:         HomeDir,
 		CacheDir:        CacheDir,
 		CacheEnv:        cacheEnv,
-		ToolingManifest: config.ToolingManifest,
 		RunDir:          config.RunDir,
 		Mounts:          c.Mounts,
 		Driver:          driverOr(c.Storage.Driver),
@@ -177,7 +169,6 @@ func Render(c *config.Config) error {
 		GeneratedDir,
 		filepath.Join(GeneratedDir, "angie"),
 		filepath.Join(GeneratedDir, "angie", "tenants"),
-		filepath.Join(GeneratedDir, "image"),
 	} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
@@ -201,14 +192,6 @@ func Render(c *config.Config) error {
 	}{
 		{"docker-compose.yml.tmpl", filepath.Join(GeneratedDir, "docker-compose.yml"), 0o644},
 		{"angie.conf.tmpl", filepath.Join(GeneratedDir, "angie", "angie.conf"), 0o644},
-		{"Dockerfile.tmpl", filepath.Join(GeneratedDir, "image", "Dockerfile"), 0o644},
-		{"entrypoint.sh.tmpl", filepath.Join(GeneratedDir, "image", "entrypoint.sh"), 0o755},
-		{"prompt.sh.tmpl", filepath.Join(GeneratedDir, "image", "prompt.sh"), 0o644},
-		{"vswarm-tooling.sh.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-tooling"), 0o755},
-		{"vswarm-codex-state-reconcile.ts.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-codex-state-reconcile.ts"), 0o644},
-		{"vswarm-codex-state-reconcile.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-codex-state-reconcile"), 0o755},
-		{"vswarm-repos.sh.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-repos"), 0o755},
-		{"tools.tsv.tmpl", filepath.Join(GeneratedDir, "image", "tools.tsv"), 0o644},
 	}
 	for _, f := range files {
 		if err := renderTemplate(f.tmpl, f.dst, v, f.mode); err != nil {
