@@ -181,6 +181,7 @@ func TestValidateRejectsUnsafeOrAmbiguousTenants(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := Default()
 			c.Domain = "code.example.com"
+			c.Image = "vswarm/workspace:test"
 			c.Tenants = tt.tenants
 			err := c.Validate()
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -288,7 +289,7 @@ func TestDefaultStorageDriverIsLocal(t *testing.T) {
 	if c.Storage.Driver != "local" {
 		t.Errorf("default driver = %q, want local", c.Storage.Driver)
 	}
-	empty := &Config{Domain: "x.example.com"}
+	empty := &Config{Domain: "x.example.com", Image: "vswarm/workspace:test"}
 	if err := empty.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -428,6 +429,7 @@ func TestSaveQuotesEmailsSoTheyRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tenants.yaml")
 	c := Default()
 	c.Domain = "code.example.com"
+	c.Image = "vswarm/workspace:test"
 	c.Path = path
 	c.Tenants = []Tenant{{Email: "space man@example.com", Name: "spaceman"}}
 	if err := c.Validate(); err != nil {
@@ -448,6 +450,7 @@ func TestSaveQuotesEmailsSoTheyRoundTrip(t *testing.T) {
 func TestParseMountsSurviveARoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tenants.yaml")
 	input := `domain: code.example.com
+image: vswarm/workspace:test
 mounts:
   - /opt/dislace/vswarm/cli:/opt/dislace-cli
 tenants:
@@ -511,6 +514,7 @@ func TestValidateRejectsUnsafeMounts(t *testing.T) {
 	for name, mounts := range cases {
 		c := Default()
 		c.Domain = "code.example.com"
+		c.Image = "vswarm/workspace:test"
 		c.Mounts = mounts
 		if err := c.Validate(); err == nil {
 			t.Errorf("%s: Validate() accepted %#v", name, mounts)
@@ -518,9 +522,23 @@ func TestValidateRejectsUnsafeMounts(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresAPublishedImage(t *testing.T) {
+	c := Default()
+	c.Domain = "code.example.com"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "image is required") {
+		t.Fatalf("Validate() error = %v, want a missing-image complaint; a host that "+
+			"names no image runs whatever the local daemon last tagged", err)
+	}
+	c.Image = "ghcr.io/dislace/vswarm-workspace:v1"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate() rejected a named image: %v", err)
+	}
+}
+
 func TestValidateAcceptsACanonicalDottedPath(t *testing.T) {
 	c := Default()
 	c.Domain = "code.example.com"
+	c.Image = "vswarm/workspace:test"
 	c.Mounts = []Mount{{Source: "/opt/my..dir", Target: "/opt/dislace-cli"}}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("Validate() rejected a canonical path: %v", err)
@@ -558,7 +576,8 @@ func parseRoster(t *testing.T, body string) (*Config, error) {
 }
 
 func TestNetIDIsOptionalAndChecked(t *testing.T) {
-	base := "domain: example.com\ntenants:\n  - email: a@example.com\n    name: a\n"
+	base := "domain: example.com\nimage: vswarm/workspace:test\n" +
+		"tenants:\n  - email: a@example.com\n    name: a\n"
 
 	t.Run("absent leaves it zero so render falls back to position", func(t *testing.T) {
 		c, err := parseRoster(t, base)

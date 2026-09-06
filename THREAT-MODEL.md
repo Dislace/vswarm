@@ -52,7 +52,7 @@ container cannot reach another tenant or the proxy.
 If you are running genuinely hostile tenants, re-add to each workspace service in
 `templates/docker-compose.yml.tmpl`: `read_only: true` (+ `tmpfs: [/tmp, /run]`),
 `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, and drop `sudo` from
-`templates/Dockerfile.tmpl`. The isolation invariants above are independent of
+`image/Dockerfile`. The isolation invariants above are independent of
 this choice.
 
 Workspace CLIs are installed by hand, by the operator or the tenant, through

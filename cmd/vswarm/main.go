@@ -75,9 +75,9 @@ USAGE
 
 COMMANDS
   init                     scaffold tenants.yaml, .env, config/ (idempotent)
-  render                   tenants.yaml -> generated/ (compose + angie + image)
-  build                    build the workspace image from generated/image
-                           (+ the image_overlay layer when configured)
+  render                   tenants.yaml -> generated/ (compose + angie)
+  build                    build ./image and tag it with the image: from
+                           tenants.yaml (vswarm checkout only; hosts pull)
   up                       render, start the stack, provision every tenant token
   down                     stop the stack
   tenant add <email> <name>   add a tenant; start + pair it   (--no-up to skip)
@@ -128,7 +128,7 @@ func cmdInit() error {
 	if err := os.MkdirAll("config", 0o755); err != nil {
 		return err
 	}
-	fmt.Println("next: edit tenants.yaml + .env, then `vswarm build && vswarm up`")
+	fmt.Println("next: edit tenants.yaml + .env (set `image:` to a published tag), then `vswarm up`")
 	return nil
 }
 
@@ -178,38 +178,21 @@ func cmdUp() error {
 
 func cmdDown() error { return dockerx.Compose("down") }
 
+// imageContext is the committed build context. The image is an input to a
+// deployment, not something a deployment renders: CI builds this directory and
+// publishes the result, and a host names the published tag in `image:`.
+const imageContext = "image"
+
 func cmdBuild() error {
 	c, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	if err := render.Render(c); err != nil {
-		return err
+	if _, err := os.Stat(filepath.Join(imageContext, "Dockerfile")); err != nil {
+		return fmt.Errorf("no build context at ./%s — `build` runs from a vswarm checkout; "+
+			"a deployment pulls the published image named by `image:`", imageContext)
 	}
-	if c.ImageOverlay == "" {
-		return dockerx.Run("docker", "build", "-t", c.Image, "generated/image")
-	}
-
-	if _, err := os.Stat(c.ImageOverlay); err != nil {
-		return fmt.Errorf("image_overlay %q: %w", c.ImageOverlay, err)
-	}
-	base := baseImageTag(c.Image)
-	if err := dockerx.Run("docker", "build", "-t", base, "generated/image"); err != nil {
-		return err
-	}
-	return dockerx.Run("docker", "build",
-		"-t", c.Image,
-		"-f", c.ImageOverlay,
-		"--build-arg", "VSWARM_BASE_IMAGE="+base,
-		filepath.Dir(c.ImageOverlay))
-}
-
-func baseImageTag(image string) string {
-	slash := strings.LastIndex(image, "/")
-	if colon := strings.LastIndex(image, ":"); colon > slash {
-		return image + "-base"
-	}
-	return image + ":base"
+	return dockerx.Run("docker", "build", "-t", c.Image, imageContext)
 }
 
 func cmdStatus() error { return dockerx.Compose("ps") }
@@ -336,7 +319,7 @@ func truncate(s string, n int) string {
 
 const defaultTenants = `# VibeSwarm tenant manifest — the only file you edit by hand.
 domain: t3code.example.com
-image: vswarm/workspace:latest
+image: ghcr.io/dislace/vswarm-workspace:latest
 resources:
   cpus: "2.0"
   memory: 6g

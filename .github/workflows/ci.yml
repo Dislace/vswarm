@@ -39,30 +39,22 @@ jobs:
       - name: hadolint
         uses: hadolint/hadolint-action@v3.4.0
         with:
-          dockerfile: templates/Dockerfile.tmpl
+          dockerfile: image/Dockerfile
       - name: shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck templates/*.sh.tmpl scripts/*.sh
+          shellcheck image/entrypoint.sh image/prompt.sh image/vswarm-repos scripts/*.sh
 
   workspace-image:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Render workspace build context
-        run: |
-          cp tenants.example.yaml tenants.yaml
-          go run ./cmd/vswarm render
       - uses: docker/setup-buildx-action@v4
       - name: Build workspace image
         uses: docker/build-push-action@v7
         with:
-          context: generated/image
+          context: image
           load: true
           tags: vswarm/workspace:ci
           cache-from: type=gha

@@ -169,7 +169,6 @@ func Render(c *config.Config) error {
 		GeneratedDir,
 		filepath.Join(GeneratedDir, "angie"),
 		filepath.Join(GeneratedDir, "angie", "tenants"),
-		filepath.Join(GeneratedDir, "image"),
 	} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
@@ -193,10 +192,6 @@ func Render(c *config.Config) error {
 	}{
 		{"docker-compose.yml.tmpl", filepath.Join(GeneratedDir, "docker-compose.yml"), 0o644},
 		{"angie.conf.tmpl", filepath.Join(GeneratedDir, "angie", "angie.conf"), 0o644},
-		{"Dockerfile.tmpl", filepath.Join(GeneratedDir, "image", "Dockerfile"), 0o644},
-		{"entrypoint.sh.tmpl", filepath.Join(GeneratedDir, "image", "entrypoint.sh"), 0o755},
-		{"prompt.sh.tmpl", filepath.Join(GeneratedDir, "image", "prompt.sh"), 0o644},
-		{"vswarm-repos.sh.tmpl", filepath.Join(GeneratedDir, "image", "vswarm-repos"), 0o755},
 	}
 	for _, f := range files {
 		if err := renderTemplate(f.tmpl, f.dst, v, f.mode); err != nil {

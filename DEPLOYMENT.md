@@ -191,23 +191,21 @@ password out of the old `~/.pg.env` into `config/<name>/pg.password`, and
 delete anything. `--keep-derived` copies the caches too if you would rather
 not re-warm them.
 
-### Workspace image overlay (optional)
+### The workspace image
 
-To bake a deployment-specific toolchain into the workspace without forking
-`templates/Dockerfile.tmpl`, ship a Dockerfile alongside `tenants.yaml` and
-point `image_overlay:` at it:
+The image is an **input**, not something a deployment produces. `image/` in
+this repo is a plain committed build context; CI builds it and publishes
+`ghcr.io/dislace/vswarm-workspace:<tag>`, and a host names that tag in
+`image:`. `image:` is required — there is no default, because a host that
+names none would run whatever the local daemon last tagged.
 
-```dockerfile
-ARG VSWARM_BASE_IMAGE
-FROM ${VSWARM_BASE_IMAGE}
-RUN npm install -g bun && apt-get update && apt-get install -y --no-install-recommends jq \
- && rm -rf /var/lib/apt/lists/*
-```
+`vswarm render` does not write a build context and `vswarm build` only works
+from a vswarm checkout, where it builds `./image` and tags it `image:`. A
+deployment layer never calls `build`; it pulls.
 
-`vswarm build` builds the stock image under `<image>-base`, then layers the
-overlay on top as the final `image:` tag. The overlay file's directory is its
-build context. A deployment layer driving `docker build` itself follows the
-same two-step contract.
+To bake a deployment-specific toolchain in, build your own image `FROM` the
+published one and put your tag in `image:`. There is no overlay mechanism to
+learn: the config key already names any image you like.
 
 ### Workspace tooling
 
@@ -331,7 +329,7 @@ ssh -i ~/.ssh/vswarm-admin ubuntu@172.31.10.1
 ## Commands the deployment layer runs
 
 ```bash
-vswarm build                       # build the workspace image from generated/image
+vswarm build                       # build ./image (vswarm checkout only; hosts pull)
 vswarm up                          # render + start + provision + pair every tenant (idempotent)
 vswarm provision <name> --from DIR # deliver staged credentials into the work volume
 vswarm doctor                      # gate: exits non-zero if any isolation invariant fails
