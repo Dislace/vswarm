@@ -2,14 +2,26 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/dislace/vswarm/internal/config"
 	"github.com/dislace/vswarm/internal/dockerx"
 	"github.com/dislace/vswarm/internal/render"
 )
+
+// provisionedList is the record, inside the tenant's own work volume, of every
+// path vswarm delivered there. It travels with the data it describes, so a
+// volume that is restored or moved carries its own account of what is vswarm's
+// to take back. Nothing outside this list is ever removed: a file the tenant
+// made is not vswarm's to reason about.
+const provisionedList = ".config/vswarm/provisioned"
+
+const provisionedHeader = "# Written by `vswarm provision`. Every path below was delivered by vswarm\n" +
+	"# and is taken back once it leaves the staging tree.\n"
 
 var derivedPaths = []string{
 	".cache",
@@ -37,6 +49,11 @@ func cmdProvision(args []string) error {
 	}
 	if len(pos) < 1 {
 		return fmt.Errorf("usage: vswarm provision <name> [--from <dir>] [--remove <rel-path>]...")
+	}
+	if len(remove) > 0 {
+		fmt.Fprintf(os.Stderr,
+			"provision: --remove is an escape hatch for paths vswarm never delivered; "+
+				"anything vswarm provisioned is taken back by dropping it from --from\n")
 	}
 	c, err := loadConfig()
 	if err != nil {
@@ -108,30 +125,125 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 		}
 	}
 
-	entries, err := os.ReadDir(stage)
+	staged, err := stagedPaths(stage)
 	if err != nil {
 		return err
-	}
-	if len(entries) == 0 && len(remove) == 0 {
-		return nil
 	}
 
 	vol := render.WorkVolume(name)
 	if err := requireVolume(vol); err != nil {
 		return err
 	}
-	if len(entries) > 0 {
-		if err := deliver(c.Image, stage, vol); err != nil {
+	previous := readProvisioned(c.Image, vol)
+	if len(staged) == 0 && len(previous) == 0 && len(remove) == 0 {
+		return nil
+	}
+	stale := staleProvisioned(previous, staged)
+
+	// The new list ships inside the same delivery as the files it describes,
+	// and only after the removals it authorised have landed: a delivery that
+	// fails leaves a list that still claims the paths it has not yet given up.
+	if err := writeProvisioned(stage, staged); err != nil {
+		return err
+	}
+	if len(stale) > 0 {
+		if err := revokeFiles(c.Image, vol, stale); err != nil {
 			return err
 		}
+	}
+	if err := deliver(c.Image, stage, vol); err != nil {
+		return err
 	}
 	if len(remove) > 0 {
 		if err := revoke(c.Image, vol, remove); err != nil {
 			return err
 		}
 	}
-	fmt.Printf("provisioned %s (%d delivered, %d removed -> %s)\n", name, len(entries), len(remove), vol)
+	fmt.Printf("provisioned %s (%d delivered, %d removed -> %s)\n",
+		name, len(staged), len(stale)+len(remove), vol)
 	return nil
+}
+
+// stagedPaths lists every file the staging tree delivers, relative to the
+// tenant home and slash-separated. Directories are left out on purpose:
+// provisioning creates them on the way to a file, and taking one back would
+// take whatever the tenant put beside it.
+func stagedPaths(stage string) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(stage, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(stage, p)
+		if err != nil {
+			return err
+		}
+		out = append(out, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(out)
+	return out, err
+}
+
+// staleProvisioned is the set difference that makes provisioning declarative:
+// what vswarm delivered last time and is not delivering now. Appearing in the
+// previous list is the only way a path becomes eligible for removal, so a file
+// vswarm never delivered can never be taken. The list lives in a volume the
+// tenant can write, so an entry that does not name a path inside the tenant
+// home is dropped rather than acted on.
+func staleProvisioned(previous, staged []string) []string {
+	keep := make(map[string]bool, len(staged))
+	for _, p := range staged {
+		keep[p] = true
+	}
+	var out []string
+	for _, p := range previous {
+		if keep[p] || checkRelPath(p) != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// readProvisioned returns the list the last provision left in the volume.
+// A volume without one has, as far as vswarm can prove, had nothing delivered
+// into it, so it reports nothing rather than guessing: the failure mode of a
+// missing list is a file left behind, never a file deleted.
+func readProvisioned(image, volume string) []string {
+	out, err := dockerx.Output("docker", volumeRunArgs(image, "cat",
+		[]string{"-v", volume + ":/dst"}, []string{"/dst/" + provisionedList})...)
+	if err != nil {
+		return nil
+	}
+	return parseProvisioned(out)
+}
+
+func writeProvisioned(stage string, paths []string) error {
+	dst := filepath.Join(stage, filepath.FromSlash(provisionedList))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, []byte(formatProvisioned(paths)), 0o644)
+}
+
+func formatProvisioned(paths []string) string {
+	var b strings.Builder
+	b.WriteString(provisionedHeader)
+	for _, p := range paths {
+		b.WriteString(p + "\n")
+	}
+	return b.String()
+}
+
+func parseProvisioned(s string) []string {
+	var out []string
+	for _, ln := range strings.Split(s, "\n") {
+		if ln = strings.TrimSpace(ln); ln != "" && !strings.HasPrefix(ln, "#") {
+			out = append(out, ln)
+		}
+	}
+	return out
 }
 
 func volumeRun(image, entrypoint string, mounts, args []string) error {
@@ -145,8 +257,24 @@ func volumeRunArgs(image, entrypoint string, mounts, args []string) []string {
 	return append(full, args...)
 }
 
+// revoke takes back a path the caller named on the command line, recursively,
+// because --remove exists for whole trees vswarm never delivered and cannot
+// describe from a staging tree.
 func revoke(image, volume string, paths []string) error {
-	args := []string{"-rf"}
+	return removePaths(image, volume, "-rf", paths)
+}
+
+// revokeFiles takes back paths that left the staging tree. It is deliberately
+// not recursive: a provisioned path that is a directory today is one the
+// tenant made, and rm -r would take its contents with it. The removal is also
+// allowed to fail loudly — a credential that was meant to be withdrawn and
+// silently was not is worse than a converge that stops and says so.
+func revokeFiles(image, volume string, paths []string) error {
+	return removePaths(image, volume, "-f", paths)
+}
+
+func removePaths(image, volume, mode string, paths []string) error {
+	args := []string{mode}
 	for _, p := range paths {
 		args = append(args, "/dst/"+p)
 	}
@@ -155,18 +283,18 @@ func revoke(image, volume string, paths []string) error {
 
 func checkRelPath(p string) error {
 	if p == "" {
-		return fmt.Errorf("--remove: empty path")
+		return fmt.Errorf("provision: empty path")
 	}
 	if filepath.IsAbs(p) {
-		return fmt.Errorf("--remove %q: must be relative to the tenant home", p)
+		return fmt.Errorf("provision %q: must be relative to the tenant home", p)
 	}
 	clean := filepath.Clean(p)
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("--remove %q: escapes the tenant home", p)
+		return fmt.Errorf("provision %q: escapes the tenant home", p)
 	}
 	for _, seg := range strings.Split(clean, "/") {
 		if seg == ".." {
-			return fmt.Errorf("--remove %q: escapes the tenant home", p)
+			return fmt.Errorf("provision %q: escapes the tenant home", p)
 		}
 	}
 	return nil

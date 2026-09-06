@@ -84,9 +84,12 @@ COMMANDS
   tenant rm <name>            remove a tenant                  (--purge to wipe data)
   tenant ls                   list tenants + container status
   pair <name>              (re)mint a tenant's T3 token and inject it into angie
-  provision <name>         deliver credentials into a tenant's work volume
-                           (--from <dir> stages a tree the deployment layer built,
-                            --remove <rel-path> revokes one, repeatable)
+  provision <name>         make a tenant's work volume match a staging tree
+                           (--from <dir> is the desired state: what it holds is
+                            delivered, what vswarm delivered before and it no
+                            longer holds is taken back, and nothing the tenant
+                            made is touched. --remove <rel-path> is an escape
+                            hatch for paths vswarm never delivered, repeatable)
   migrate <name>           copy a legacy config/<name>/home bind mount into the
                            work volume, dropping rebuildable caches
                            (--keep-derived copies them too)

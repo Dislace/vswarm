@@ -130,6 +130,23 @@ then enforces the contract regardless of what the staging tree said: everything
 delivered is owned by uid 1000, `.ssh` is `0700`, files directly under `.ssh`
 are `0600`, and any `*.env` at the home root is `0600`.
 
+**The staging tree is the desired state.** A path it holds is delivered; a path
+vswarm delivered on an earlier run and the tree no longer holds is taken back.
+Retiring a credential is therefore deleting it from the staging tree — the
+deployment layer never carries a standing list of files that used to exist.
+
+What makes that safe is that vswarm removes only from its own record: each
+provision writes the list of paths it delivered to `~/.config/vswarm/provisioned`
+inside the work volume, and only a path in that list is ever eligible for
+removal. A file the tenant created is not in the list and cannot be taken. The
+removal is not recursive either, so a provisioned path the tenant has since
+replaced with a directory keeps its contents. A missing or unreadable list
+means nothing is removed: the failure mode is a file left behind.
+
+`--remove <rel-path>` still exists for whole trees vswarm never delivered — the
+one-time cleanup of anything provisioned before the list existed. It is not for
+standing use; a caller reaching for it repeatedly wants the staging tree instead.
+
 It also delivers `~/.pg.env` for postgres tenants on its own — `vswarm up` runs
 it for every tenant, so a fresh workspace gets its database contract with no
 extra step.
