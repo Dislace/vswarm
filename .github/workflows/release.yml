@@ -49,7 +49,10 @@ jobs:
         run: gh release create "${GITHUB_REF_NAME}" --generate-notes dist/*
 
   image:
-    runs-on: ubuntu-latest
+    # Mothership is aarch64 and is the only host that runs a workspace, so the image
+    # is built natively on an arm64 runner rather than emulated on an amd64 one.
+    # A second platform belongs here when a second architecture runs a tenant.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     needs: binary
     permissions:
@@ -74,6 +77,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: image
+          platforms: linux/arm64
           push: true
           tags: ${{ env.IMAGE }}:${{ github.ref_name }}
           cache-from: type=gha

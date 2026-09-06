@@ -199,7 +199,7 @@ way it consumes any other pinned upstream — a version, a URL, a checksum:
 | Artifact | Where | Pin with |
 | --- | --- | --- |
 | `vswarm-linux-amd64`, `vswarm-linux-arm64` | GitHub release `vX.Y.Z` | the release's `SHA256SUMS` asset |
-| `ghcr.io/dislace/vswarm-workspace:vX.Y.Z` | GHCR | the digest in the release's `workspace-image.txt` asset |
+| `ghcr.io/dislace/vswarm-workspace:vX.Y.Z` (linux/arm64) | GHCR | the digest in the release's `workspace-image.txt` asset |
 
 `vswarm version` prints the tag the binary was built from, so a role can check
 what is installed before fetching anything.
