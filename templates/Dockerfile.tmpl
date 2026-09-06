@@ -23,25 +23,16 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
+# renovate: datasource=npm depName=t3
+ARG T3_VERSION=0.0.39-nightly.20260904.1278
 RUN --mount=type=cache,target=/root/.npm \
-    npm install -g t3@{{.T3Version}} \
+    npm install -g "t3@${T3_VERSION}" \
  && npm cache clean --force
 
 RUN curl -fsSL -o /tmp/uv-installer.sh https://astral.sh/uv/0.12.9/install.sh \
  && UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh /tmp/uv-installer.sh \
  && rm /tmp/uv-installer.sh \
  && uv --version
-
-COPY vswarm-tooling /usr/local/bin/vswarm-tooling
-COPY vswarm-codex-state-reconcile.ts /usr/local/lib/vswarm/
-COPY vswarm-codex-state-reconcile /usr/local/bin/vswarm-codex-state-reconcile
-COPY tools.tsv /etc/vswarm-tooling/tools.tsv
-RUN --mount=type=cache,target=/root/.npm \
-    chmod 0755 /usr/local/bin/vswarm-tooling \
- && chmod 0755 /usr/local/bin/vswarm-codex-state-reconcile \
- && chmod 0644 /etc/vswarm-tooling/tools.tsv \
- && vswarm-tooling \
- && npm cache clean --force
 
 RUN install -d -m 0755 /etc/codex \
  && printf '%s\n' 'check_for_update_on_startup = false' > /etc/codex/managed_config.toml \

@@ -77,15 +77,14 @@ type Config struct {
 // because mount validation has to keep declared mounts off them, and the
 // compose template renders from the same constants so the two cannot drift.
 const (
-	HomeDir         = "/home/ai-agent"
-	CacheDir        = HomeDir + "/.cache"
-	ToolingManifest = "/etc/vswarm-tooling/tools.tsv"
-	RunDir          = "/run"
+	HomeDir  = "/home/ai-agent"
+	CacheDir = HomeDir + "/.cache"
+	RunDir   = "/run"
 )
 
 // ReservedTargets is every container path a workspace mounts on its own. A
 // declared mount may not take one, shadow one, or sit under one.
-var ReservedTargets = []string{HomeDir, CacheDir, ToolingManifest, RunDir}
+var ReservedTargets = []string{HomeDir, CacheDir, RunDir}
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 

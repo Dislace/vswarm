@@ -491,12 +491,12 @@ func TestValidateRejectsUnsafeMounts(t *testing.T) {
 		"traversal spelt with //": {{Source: "/opt/cli", Target: "//home/ai-agent"}},
 		"trailing slash":          {{Source: "/opt/cli", Target: "/opt/dislace-cli/"}},
 		"over the tenant home":    {{Source: "/opt/cli", Target: "/home/ai-agent/.config"}},
-		"over the tooling manifest": {
-			{Source: "/opt/cli", Target: "/etc/vswarm-tooling/tools.tsv"},
+		"under the cache volume": {
+			{Source: "/opt/cli", Target: "/home/ai-agent/.cache/npm"},
 		},
 		"over the run tmpfs": {{Source: "/opt/cli", Target: "/run"}},
 		"shadowing a reserved parent": {
-			{Source: "/opt/cli", Target: "/etc/vswarm-tooling"},
+			{Source: "/opt/cli", Target: "/home"},
 		},
 		"compose interpolation": {{Source: "/opt/${SECRET}/cli", Target: "/opt/dislace-cli"}},
 		"duplicate target": {

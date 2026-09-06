@@ -43,9 +43,7 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck templates/*.sh.tmpl templates/vswarm-codex-state-reconcile.tmpl scripts/*.sh
-      - name: tooling lifecycle
-        run: ./scripts/test-vswarm-tooling.sh
+          shellcheck templates/*.sh.tmpl scripts/*.sh
 
   workspace-image:
     runs-on: ubuntu-latest
@@ -69,10 +67,6 @@ jobs:
           tags: vswarm/workspace:ci
           cache-from: type=gha
           cache-to: type=gha,mode=min
-      - name: Verify approved workspace tools
+      - name: Verify the workspace serves
         run: |
-          docker run --rm \
-            --entrypoint /usr/local/bin/vswarm-tooling \
-            vswarm/workspace:ci
-          docker run --rm --entrypoint sh vswarm/workspace:ci -c \
-            't3 --version && claude --version && codex --version && bun --version && opencode --version && go version'
+          docker run --rm --entrypoint sh vswarm/workspace:ci -c 't3 --version'
