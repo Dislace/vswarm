@@ -63,13 +63,19 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # ghcr refuses an uppercase path and the owner is spelled Dislace, so the
+      # repository half is lowercased once here and read from the env after.
+      - name: Name the image
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "IMAGE=ghcr.io/${OWNER,,}/vswarm-workspace" >> "$GITHUB_ENV"
       - name: Build and push
         id: push
         uses: docker/build-push-action@v7
         with:
           context: image
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/vswarm-workspace:${{ github.ref_name }}
+          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=min
       # The tag is what a host reads; the digest is what it can pin. Shipping
@@ -78,8 +84,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DIGEST: ${{ steps.push.outputs.digest }}
-          OWNER: ${{ github.repository_owner }}
         run: |
-          printf 'ghcr.io/%s/vswarm-workspace:%s\nghcr.io/%s/vswarm-workspace@%s\n' \
-            "${OWNER}" "${GITHUB_REF_NAME}" "${OWNER}" "${DIGEST}" > workspace-image.txt
+          printf '%s:%s\n%s@%s\n' \
+            "${IMAGE}" "${GITHUB_REF_NAME}" "${IMAGE}" "${DIGEST}" > workspace-image.txt
           gh release upload "${GITHUB_REF_NAME}" workspace-image.txt
