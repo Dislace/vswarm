@@ -159,7 +159,7 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 			return err
 		}
 	}
-	fmt.Printf("provisioned %s (%d delivered, %d removed -> %s)\n",
+	fmt.Fprintf(humanOut, "provisioned %s (%d delivered, %d removed -> %s)\n",
 		name, len(staged), len(stale)+len(remove), vol)
 	return nil
 }

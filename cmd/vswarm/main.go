@@ -38,17 +38,17 @@ func main() {
 	case "render":
 		err = cmdRender()
 	case "up":
-		err = cmdUp()
+		err = cmdUp(os.Args[2:])
 	case "down":
 		err = cmdDown()
 	case "build":
 		err = cmdBuild()
 	case "status":
-		err = cmdStatus()
+		err = cmdStatus(os.Args[2:])
 	case "logs":
 		err = cmdLogs(os.Args[2:])
 	case "doctor":
-		err = cmdDoctor()
+		err = cmdDoctor(os.Args[2:])
 	case "tenant":
 		err = cmdTenant(os.Args[2:])
 	case "pair":
@@ -85,7 +85,9 @@ COMMANDS
   render                   tenants.yaml -> generated/ (compose + angie)
   build                    build ./image and tag it with the image: from
                            tenants.yaml (vswarm checkout only; hosts pull)
-  up                       render, start the stack, provision every tenant token
+  up                       render, start the stack, provision + pair every tenant
+                           (--json reports what each container did: created,
+                            recreated, unchanged or absent)
   down                     stop the stack
   tenant add <email> <name>   add a tenant; start + pair it   (--no-up to skip)
   tenant rm <name>            remove a tenant                  (--purge to wipe data)
@@ -100,9 +102,10 @@ COMMANDS
   migrate <name>           copy a legacy config/<name>/home bind mount into the
                            work volume, dropping rebuildable caches
                            (--keep-derived copies them too)
-  status                   docker compose ps
+  status                   docker compose ps                       (--json)
   logs [tenant]            follow logs (proxy by default)
   doctor                   verify isolation + config invariants
+                           (--wait=30s retries until they pass or time out)
   version                  print the release this binary was built from
 `)
 }
@@ -152,7 +155,8 @@ func cmdRender() error {
 	return nil
 }
 
-func cmdUp() error {
+func cmdUp(args []string) error {
+	_, asJSON := takeJSON(args)
 	c, err := loadConfig()
 	if err != nil {
 		return err
@@ -160,9 +164,11 @@ func cmdUp() error {
 	if err := render.Render(c); err != nil {
 		return err
 	}
-	if err := dockerx.Compose("up", "-d", "--remove-orphans"); err != nil {
+	before := containerIDs()
+	if err := dockerx.ComposeTo(humanOut, "up", "-d", "--remove-orphans"); err != nil {
 		return err
 	}
+	report := classifyUp(stackContainers(c), before, containerIDs())
 	if err := runParallel(len(c.Tenants), func(i int) error {
 		t := c.Tenants[i]
 		if err := provisionTenant(c, t.Name, ""); err != nil {
@@ -180,7 +186,10 @@ func cmdUp() error {
 			return err
 		}
 	}
-	fmt.Println("up: stack running, all tenants provisioned")
+	fmt.Fprintln(humanOut, "up: stack running, all tenants provisioned")
+	if asJSON {
+		return emitJSON(report)
+	}
 	return nil
 }
 
@@ -203,7 +212,16 @@ func cmdBuild() error {
 	return dockerx.Run("docker", "build", "-t", c.Image, imageContext)
 }
 
-func cmdStatus() error { return dockerx.Compose("ps") }
+func cmdStatus(args []string) error {
+	if _, asJSON := takeJSON(args); asJSON {
+		c, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		return emitJSON(stackStatus(c))
+	}
+	return dockerx.Compose("ps")
+}
 
 func cmdLogs(args []string) error {
 	svc := proxyContainer

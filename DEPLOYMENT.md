@@ -342,11 +342,42 @@ ssh -i ~/.ssh/vswarm-admin ubuntu@172.31.10.1
 ## Commands the deployment layer runs
 
 ```bash
-vswarm build                       # build ./image (vswarm checkout only; hosts pull)
-vswarm up                          # render + start + provision + pair every tenant (idempotent)
-vswarm provision <name> --from DIR # deliver staged credentials into the work volume
-vswarm doctor                      # gate: exits non-zero if any isolation invariant fails
+vswarm up --json                    # render + start + provision + pair (idempotent)
+vswarm provision <name> --from DIR  # make the work volume match the staging tree
+vswarm doctor --wait=60s            # gate: non-zero if any isolation invariant fails
 ```
+
+`vswarm build` is not one of these. A deployment pulls the published image.
+
+## Outputs / exit codes
+
+- All commands: `0` on success, non-zero on failure (safe for `changed_when`/
+  `failed_when`).
+- `vswarm doctor`: `0` only if every invariant PASSes — use it as a deploy gate.
+  `--wait=<duration>` re-runs the whole set until it passes or the deadline
+  expires, so the caller does not need a retry loop around it. Without it,
+  doctor makes one pass, as before.
+- `vswarm up --json` and `vswarm status --json` write a JSON document to
+  **stdout** and move progress prose to stderr. `up` reports one entry per
+  declared container:
+
+```json
+{
+  "changed": true,
+  "containers": [
+    {"container": "vswarm-proxy", "action": "unchanged", "id": "…"},
+    {"container": "vswarm-alice", "action": "recreated", "id": "…"},
+    {"container": "vswarm-db-alice", "action": "created", "id": "…"}
+  ]
+}
+```
+
+  `action` is `created`, `recreated`, `unchanged` or `absent`, and `changed` is
+  true for anything that is not `unchanged`. Use it directly for
+  `changed_when`; capturing container ids before and after `up` and diffing
+  them is what this replaces.
+- Rendered artifacts land in `generated/` (gitignored; contain per-tenant tokens
+  — treat as secret).
 
 Reconcile on change (add/remove users) by re-templating `tenants.yaml` and
 running `vswarm up` again, or targeted:
@@ -355,14 +386,6 @@ running `vswarm up` again, or targeted:
 vswarm tenant add <email> <name>   # adds + starts + pairs just that tenant
 vswarm tenant rm <name> --purge    # removes just that tenant
 ```
-
-## Outputs / exit codes
-
-- All commands: `0` on success, non-zero on failure (safe for `changed_when`/
-  `failed_when`).
-- `vswarm doctor`: `0` only if every invariant PASSes — use it as a deploy gate.
-- Rendered artifacts land in `generated/` (gitignored; contain per-tenant tokens
-  — treat as secret).
 
 ## Token rotation
 
