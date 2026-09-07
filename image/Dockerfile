@@ -24,7 +24,7 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && rm -rf /var/lib/apt/lists/*
 
 # renovate: datasource=npm depName=t3
-ARG T3_VERSION=0.0.39-nightly.20260906.1316
+ARG T3_VERSION=0.0.39
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g "t3@${T3_VERSION}" \
  && npm cache clean --force
