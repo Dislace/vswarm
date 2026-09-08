@@ -302,6 +302,47 @@ in the workspace instead.
 Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 `dropdb && createdb && bun run migration:run`.
 
+#### Serving t3's preview tools from the sidecar
+
+Agents get 15 `preview_*` tools (navigate, click, snapshot, resize, …) whether or
+not anything answers them; without a host they fail with *"No preview automation
+host is available"*, and agents fall back to installing their own browser. The
+preview host closes that gap: it holds one WebSocket to the workspace's own t3
+server and one CDP connection to the sidecar, receives automation requests and
+answers them with Playwright.
+
+It runs in the **workspace**, not the sidecar, because it needs the t3 credential
+and the loopback server. The sidecar stays a browser with no secrets.
+
+`entrypoint.sh` starts it when both conditions hold: `~/.playwright.env` exists
+and a token is available, either as `T3_PREVIEW_HOST_TOKEN` or in
+`~/.preview-host.env` (mode `0600`), matching how `~/.pg.env` and
+`~/.playwright.env` already deliver contracts.
+
+Mint the token on the host with the supported CLI, which issues the standard
+client scopes including the `orchestration:operate` that preview automation
+requires:
+
+```sh
+umask 077
+t3 auth session issue --base-dir "$T3CODE_HOME" --ttl 30d \
+  --label "vswarm preview host" --token-only \
+  | sed 's/^/T3_PREVIEW_HOST_TOKEN=/' > ~/.preview-host.env
+```
+
+Never pass it in argv or echo it; `t3 auth session list` shows sessions without
+revealing tokens, and `t3 auth session revoke` retires one.
+
+The host authenticates with a bearer header on the WebSocket upgrade. t3 also
+issues browser clients a short-lived ticket via `POST
+/api/auth/websocket-ticket`, but that exists because a browser `WebSocket`
+cannot set headers; a headless host does not need it.
+
+The host advertises 12 of the 14 operations — everything except
+`recordingStart`/`recordingStop`. t3 negotiates capabilities per host and routes
+around what is not advertised, so the remaining two simply stay unavailable
+rather than failing at call time.
+
 `vswarm doctor` gains two invariants per postgres tenant: (a) no other tenant's
 workspace can open a TCP connection to this tenant's db container, and (b) the
 db container is attached to exactly its own tenant network.
