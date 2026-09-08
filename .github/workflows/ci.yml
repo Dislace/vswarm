@@ -44,6 +44,8 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
           shellcheck image/entrypoint.sh image/prompt.sh image/vswarm-repos scripts/*.sh
+      - name: The preview host resolves the browser the image bakes
+        run: scripts/check-playwright-pin.sh
 
   workspace-image:
     runs-on: ubuntu-latest
