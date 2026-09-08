@@ -333,12 +333,14 @@ including the `orchestration:operate` that preview automation requires:
 
 ```sh
 umask 077
-t3 auth session issue --base-dir "$T3CODE_HOME" --ttl 30d \
-  --label "vswarm preview host" --token-only \
-  | sed 's/^/T3_PREVIEW_HOST_TOKEN=/' > ~/.preview-host.env
+printf 'T3_PREVIEW_HOST_TOKEN=%s\n' "$(t3 auth session issue \
+  --base-dir "$T3CODE_HOME" --ttl 30d \
+  --label 'vswarm preview host' --token-only)" > ~/.preview-host.env
 ```
 
-Never pass it in argv or echo it; `t3 auth session list` shows sessions without
+Substitute the command rather than piping it through `sed`: the CLI emits a
+trailing newline, and a per-line prefix turns that into a second, empty
+assignment. Never pass the token in argv or echo it; `t3 auth session list` shows sessions without
 revealing tokens, and `t3 auth session revoke` retires one.
 
 The host authenticates with a bearer header on the WebSocket upgrade. t3 also
