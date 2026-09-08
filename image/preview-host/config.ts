@@ -23,7 +23,9 @@ const readEnvFile = async (path: string): Promise<Map<string, string>> => {
     if (trimmed === "" || trimmed.startsWith("#")) continue
     const eq = trimmed.indexOf("=")
     if (eq <= 0) continue
-    entries.set(trimmed.slice(0, eq), trimmed.slice(eq + 1))
+    const value = trimmed.slice(eq + 1)
+    if (value === "") continue
+    entries.set(trimmed.slice(0, eq), value)
   }
   return entries
 }
