@@ -78,12 +78,15 @@ type Config struct {
 const (
 	HomeDir  = "/home/ai-agent"
 	CacheDir = HomeDir + "/.cache"
-	RunDir   = "/run"
+
+	BrowsersDir = "/opt/ms-playwright"
+	RunDir      = "/run"
 )
 
-// ReservedTargets is every container path a workspace mounts on its own. A
-// declared mount may not take one, shadow one, or sit under one.
-var ReservedTargets = []string{HomeDir, CacheDir, RunDir}
+// ReservedTargets is every container path a workspace occupies on its own,
+// whether by mounting it or by baking it into the image. A declared mount may
+// not take one, shadow one, or sit under one.
+var ReservedTargets = []string{HomeDir, CacheDir, BrowsersDir, RunDir}
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
@@ -323,7 +326,7 @@ func (c *Config) Validate() error {
 		}
 		for _, reserved := range ReservedTargets {
 			if within(m.Target, reserved) || within(reserved, m.Target) {
-				return fmt.Errorf("mount %s: the workspace already mounts %s", m.Target, reserved)
+				return fmt.Errorf("mount %s: the workspace already occupies %s", m.Target, reserved)
 			}
 		}
 		if seenTarget[m.Target] {

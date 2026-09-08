@@ -51,6 +51,14 @@ RUN install -d -o 1000 -g 1000 -m 0755 \
       /home/ai-agent/.cache/go/build \
       /home/ai-agent/.cache/pip
 
+# renovate: datasource=npm depName=playwright
+ARG PLAYWRIGHT_VERSION=1.62.1
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN --mount=type=cache,target=/root/.npm \
+    npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
+ && chmod -R a+rX /opt/ms-playwright \
+ && npm cache clean --force
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY vswarm-repos /usr/local/bin/vswarm-repos
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/vswarm-repos

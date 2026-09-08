@@ -34,15 +34,20 @@ const (
 
 	HomeDir  = config.HomeDir
 	CacheDir = config.CacheDir
+
+	// Browsers are baked into the image, not a volume: both HomeDir and
+	// CacheDir are named-volume mount points and would shadow them at runtime.
+	BrowsersDir = config.BrowsersDir
 )
 
-var cacheEnv = []kv{
+var workspaceEnv = []kv{
 	{"XDG_CACHE_HOME", CacheDir},
 	{"npm_config_cache", CacheDir + "/npm"},
 	{"BUN_INSTALL_CACHE_DIR", CacheDir + "/bun"},
 	{"GOMODCACHE", CacheDir + "/go/mod"},
 	{"GOCACHE", CacheDir + "/go/build"},
 	{"PIP_CACHE_DIR", CacheDir + "/pip"},
+	{"PLAYWRIGHT_BROWSERS_PATH", BrowsersDir},
 }
 
 type kv struct{ K, V string }
@@ -88,7 +93,7 @@ type view struct {
 	PWPort          string
 	HomeDir         string
 	CacheDir        string
-	CacheEnv        []kv
+	WorkspaceEnv    []kv
 	RunDir          string
 	Mounts          []config.Mount
 	Driver          string
@@ -120,7 +125,7 @@ func buildView(c *config.Config) view {
 		EdgeExternal:    c.EdgeExternal,
 		HomeDir:         HomeDir,
 		CacheDir:        CacheDir,
-		CacheEnv:        cacheEnv,
+		WorkspaceEnv:    workspaceEnv,
 		RunDir:          config.RunDir,
 		Mounts:          c.Mounts,
 		Driver:          driverOr(c.Storage.Driver),
