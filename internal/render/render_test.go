@@ -173,6 +173,8 @@ func TestRenderBacksTenantHomeWithVolumesNotABindMount(t *testing.T) {
 		"- XDG_CACHE_HOME=/home/ai-agent/.cache",
 		"- GOMODCACHE=/home/ai-agent/.cache/go/mod",
 		"- npm_config_cache=/home/ai-agent/.cache/npm",
+		// Baked into the image, so deliberately not under either volume.
+		"- PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
 	} {
 		if !strings.Contains(compose, want) {
 			t.Errorf("generated compose missing %q", want)

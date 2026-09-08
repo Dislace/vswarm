@@ -498,6 +498,9 @@ func TestValidateRejectsUnsafeMounts(t *testing.T) {
 			{Source: "/opt/cli", Target: "/home/ai-agent/.cache/npm"},
 		},
 		"over the run tmpfs": {{Source: "/opt/cli", Target: "/run"}},
+		"over the baked browsers": {
+			{Source: "/opt/cli", Target: "/opt/ms-playwright"},
+		},
 		"shadowing a reserved parent": {
 			{Source: "/opt/cli", Target: "/home"},
 		},

@@ -268,6 +268,20 @@ PGPASSWORD=<minted>
 PGDATABASE=postgres
 ```
 
+### Browsers for test suites (every tenant)
+
+The workspace image bakes Chromium at `/opt/ms-playwright`, pinned by the
+`PLAYWRIGHT_VERSION` build arg and kept current by renovate, and every workspace
+gets `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`. Repos pinning the same
+Playwright version run `playwright test` with no download.
+
+The path is outside `~` and `~/.cache` on purpose: both are named-volume mount
+points and would shadow an image-baked directory at runtime.
+
+A repo pinning a *different* Playwright version downloads its own browser into
+`~/.cache/ms-playwright` as before — correct, just not free. Keeping repo pins
+and `PLAYWRIGHT_VERSION` aligned is what makes it free.
+
 ### Playwright sidecar (optional, per tenant)
 
 Opt a tenant in with `services: [playwright]`. For each opted-in tenant,
