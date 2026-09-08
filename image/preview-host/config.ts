@@ -6,7 +6,6 @@ import { join } from "node:path"
 export type Config = {
   readonly origin: string
   readonly token: string
-  readonly cdpUrl: string
   readonly environmentId: string
   readonly clientId: string
 }
@@ -38,12 +37,6 @@ export const load = async (): Promise<Config> => {
   ).trim()
   if (environmentId === "") throw new Error("environment-id is empty")
 
-  const playwrightEnv = await readEnvFile(join(home, ".playwright.env"))
-  const cdpUrl = process.env.CHROMIUM_CDP_URL ?? playwrightEnv.get("CHROMIUM_CDP_URL")
-  if (cdpUrl === undefined) {
-    throw new Error("CHROMIUM_CDP_URL is unset and ~/.playwright.env does not supply it")
-  }
-
   const hostEnv = await readEnvFile(join(home, ".preview-host.env"))
   const token = process.env.T3_PREVIEW_HOST_TOKEN ?? hostEnv.get("T3_PREVIEW_HOST_TOKEN")
   if (token === undefined || token === "") {
@@ -58,7 +51,6 @@ export const load = async (): Promise<Config> => {
       hostEnv.get("T3_PREVIEW_HOST_ORIGIN") ??
       "http://127.0.0.1:3773",
     token,
-    cdpUrl,
     environmentId,
     clientId: process.env.T3_PREVIEW_HOST_CLIENT_ID ?? `vswarm-preview-host-${hostname()}`,
   }
