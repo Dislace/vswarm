@@ -27,8 +27,10 @@ forward() {
 trap forward TERM INT
 
 # The host serves t3's preview automation tools from the Chromium sidecar. It
-# needs both the sidecar contract and a credential scoped to orchestration:operate.
-if [[ -r /home/ai-agent/.playwright.env && -n "${T3_PREVIEW_HOST_TOKEN:-}" ]]; then
+# needs both the sidecar contract and a credential, delivered either in the
+# environment or as ~/.preview-host.env the way ~/.pg.env is delivered.
+if [[ -r /home/ai-agent/.playwright.env ]] \
+   && { [[ -n "${T3_PREVIEW_HOST_TOKEN:-}" ]] || [[ -r /home/ai-agent/.preview-host.env ]]; }; then
   node "${PREVIEW_HOST}" &
   preview_pid=$!
 fi

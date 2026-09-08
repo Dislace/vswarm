@@ -314,10 +314,10 @@ answers them with Playwright.
 It runs in the **workspace**, not the sidecar, because it needs the t3 credential
 and the loopback server. The sidecar stays a browser with no secrets.
 
-`entrypoint.sh` starts it when both conditions hold: `~/.playwright.env` exists
-and a token is available, either as `T3_PREVIEW_HOST_TOKEN` or in
-`~/.preview-host.env` (mode `0600`), matching how `~/.pg.env` and
-`~/.playwright.env` already deliver contracts.
+`entrypoint.sh` starts it when both conditions hold: `~/.playwright.env` exists,
+and a token is available either as `T3_PREVIEW_HOST_TOKEN` or in
+`~/.preview-host.env` (mode `0600`) — the same file-delivery shape as
+`~/.pg.env` and `~/.playwright.env`, so a deployment layer can stage it.
 
 Mint the token on the host with the supported CLI, which issues the standard
 client scopes including the `orchestration:operate` that preview automation
