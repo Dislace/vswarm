@@ -11,16 +11,27 @@ mkdir -p "${T3CODE_HOME}" \
   /home/ai-agent/.cache/pip
 
 T3_BIN=/usr/local/bin/t3
+PREVIEW_HOST=/opt/preview-host/host.ts
 child_pid=""
+preview_pid=""
 stopping=0
 
 forward() {
   stopping=1
-  if [[ -n "${child_pid}" ]]; then
-    kill -TERM "${child_pid}" 2>/dev/null || true
-  fi
+  for pid in "${child_pid}" "${preview_pid}"; do
+    if [[ -n "${pid}" ]]; then
+      kill -TERM "${pid}" 2>/dev/null || true
+    fi
+  done
 }
 trap forward TERM INT
+
+# The host serves t3's preview automation tools from the Chromium sidecar. It
+# needs both the sidecar contract and a credential scoped to orchestration:operate.
+if [[ -r /home/ai-agent/.playwright.env && -n "${T3_PREVIEW_HOST_TOKEN:-}" ]]; then
+  node "${PREVIEW_HOST}" &
+  preview_pid=$!
+fi
 
 while true; do
   "${T3_BIN}" serve \

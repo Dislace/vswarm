@@ -1,0 +1,22 @@
+{
+  "name": "vswarm-preview-host",
+  "private": true,
+  "type": "module",
+  "description": "Serves t3 preview automation from a headless Chromium sidecar.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform": "0.97.1",
+    "@effect/platform-node": "0.108.1",
+    "@effect/rpc": "0.76.2",
+    "@types/ws": "^8.18.1",
+    "effect": "3.22.1",
+    "playwright-core": "1.63.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

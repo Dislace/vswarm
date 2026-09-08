@@ -59,6 +59,11 @@ RUN --mount=type=cache,target=/root/.npm \
  && chmod -R a+rX /opt/ms-playwright \
  && npm cache clean --force
 
+COPY preview-host/package.json preview-host/package-lock.json /opt/preview-host/
+RUN --mount=type=cache,target=/root/.npm \
+    npm --prefix /opt/preview-host ci --omit=dev
+COPY preview-host/*.ts /opt/preview-host/
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY vswarm-repos /usr/local/bin/vswarm-repos
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/vswarm-repos
