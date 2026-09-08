@@ -73,13 +73,17 @@ const webSocketConstructor = (config: Config) =>
 
 const session = (config: Config) =>
     Effect.gen(function* () {
-      yield* Effect.logInfo(`connecting to browser at ${config.cdpUrl}`)
+      yield* Effect.logInfo("launching the browser baked into the image")
       const browser = yield* Effect.acquireRelease(
-      Effect.promise(() => chromium.connectOverCDP(config.cdpUrl)),
-      (open) => Effect.promise(() => open.close()),
-    )
+        Effect.promise(() =>
+          chromium.launch({
+            args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+          }),
+        ),
+        (open) => Effect.promise(() => open.close()),
+      )
     const tabs = new TabRegistry(browser)
-    yield* Effect.logInfo(`browser connected; opening ${socketUrl(config)}`)
+    yield* Effect.logInfo(`browser ready; opening ${socketUrl(config)}`)
 
     const client = yield* RpcClient.make(PreviewAutomation)
 

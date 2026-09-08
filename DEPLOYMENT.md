@@ -302,26 +302,34 @@ in the workspace instead.
 Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 `dropdb && createdb && bun run migration:run`.
 
-#### Serving t3's preview tools from the sidecar
+#### Serving t3's preview tools
 
 Agents get 15 `preview_*` tools (navigate, click, snapshot, resize, …) whether or
 not anything answers them; without a host they fail with *"No preview automation
 host is available"*, and agents fall back to installing their own browser. The
 preview host closes that gap: it holds one WebSocket to the workspace's own t3
-server and one CDP connection to the sidecar, receives automation requests and
-answers them with Playwright.
+server, drives the Chromium baked into this image, and answers automation
+requests with Playwright.
 
-It runs in the **workspace**, not the sidecar, because it needs the t3 credential
-and the loopback server. The sidecar stays a browser with no secrets.
+It launches that browser in-process rather than reaching across to the sidecar.
+The image already ships Chromium, so a second container buys nothing here, and
+Chrome binds its debugging port to loopback regardless of
+`--remote-debugging-address`, which makes a networked CDP endpoint unreliable.
+The sidecar remains available for agents that want a disposable browser of their
+own; the preview host simply does not depend on it.
 
-`entrypoint.sh` starts it when both conditions hold: `~/.playwright.env` exists,
-and a token is available either as `T3_PREVIEW_HOST_TOKEN` or in
-`~/.preview-host.env` (mode `0600`) — the same file-delivery shape as
-`~/.pg.env` and `~/.playwright.env`, so a deployment layer can stage it.
+`preview-host/package.json` pins `playwright-core` to the same version as
+`PLAYWRIGHT_VERSION`. They must move together: the client resolves a browser
+build number from its own version, and a mismatch means the baked browser is
+invisible to it.
 
-Mint the token on the host with the supported CLI, which issues the standard
-client scopes including the `orchestration:operate` that preview automation
-requires:
+`entrypoint.sh` starts the host when a token is available, either as
+`T3_PREVIEW_HOST_TOKEN` or in `~/.preview-host.env` (mode `0600`) — the same
+file-delivery shape as `~/.pg.env` and `~/.playwright.env`, so a deployment
+layer can stage it.
+
+Mint the token with the supported CLI, which issues the standard client scopes
+including the `orchestration:operate` that preview automation requires:
 
 ```sh
 umask 077
