@@ -145,6 +145,12 @@ func doctorChecks(c *config.Config) []checkResult {
 			return checkResult{"exactly one vswarm session for " + t.Name, ok, detail}
 		})...)
 
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			version, detail := activeRuntime("vswarm-" + t.Name)
+			return checkResult{"t3 runs under its service launcher for " + t.Name, version != "", detail}
+		})...)
+
 	volumeResults := make([][]checkResult, len(c.Tenants))
 	_ = runParallel(len(c.Tenants), func(i int) error {
 		t := c.Tenants[i]
@@ -460,6 +466,19 @@ func oneLiveSession(name string, now time.Time) (bool, string) {
 		return false, "the injected session is unknown or near expiry"
 	}
 	return true, ""
+}
+
+// t3 offers its own update only when the service launcher started it, so a
+// workspace that lost the launcher is silently pinned to whatever the image
+// baked -- and the only way to move it then is recreating the container.
+func activeRuntime(container string) (string, string) {
+	out, err := dockerx.Exec(container, "bash", "-lc",
+		"pgrep -f dist/service-launcher.mjs >/dev/null && vswarm-t3 active")
+	version := strings.TrimSpace(out)
+	if err != nil || version == "" {
+		return "", "no launcher-managed runtime" + detailSuffix(errStr(err))
+	}
+	return version, "t3@" + version
 }
 
 func adminKeyPath() string {

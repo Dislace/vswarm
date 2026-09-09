@@ -73,7 +73,7 @@ have to move at all.
 | Volume | Mounted at | Contents | On a move |
 | --- | --- | --- | --- |
 | `vswarm-work-<name>` | `/home/ai-agent` | dotfiles, shell state, checkouts, uncommitted work, session history | the only volume worth copying |
-| `vswarm-cache-<name>` | `/home/ai-agent/.cache` | npm, bun, go, pip caches | drop it; it refills |
+| `vswarm-cache-<name>` | `/home/ai-agent/.cache` | npm, bun, go, pip caches; installed t3 runtimes | drop it; it refills |
 | `vswarm-dbdata-<name>` | postgres data dir | dev database (opt-in) | copy if the data matters |
 
 The cache volume earns its keep through environment, not through more mounts:
@@ -310,7 +310,46 @@ container recreates and image bumps. Nothing in vswarm reconciles, prunes or
 version-checks these; the operator owns them.
 
 t3 itself is pinned in `image/Dockerfile` (`ARG T3_VERSION`, Renovate-tracked)
-because the workspace cannot serve without it. Moving it is a new image.
+because the workspace cannot serve without it — but that pin is only the floor a
+fresh workspace starts from. See [Updating t3](#updating-t3).
+
+## Updating t3
+
+**t3 updates itself, per workspace, and the operator is not in the loop.** Its
+service launcher supervises the server; the update in the app installs the
+chosen version under the tenant's `~/.config/t3/runtime` and switches to it,
+trialling the new version, backing up the database first and returning to the
+previous one if it will not open. None of that involves this repo.
+
+That is the point. Bumping `T3_VERSION` and publishing an image moves the image
+id, so `vswarm up` recreates every workspace container and every session inside
+them dies — including, if you drive the deployment from a workspace, the one
+issuing the command. Making the version a property of the tenant rather than of
+the image turns a t3 release from a scheduled outage into something each
+workspace takes when it suits it.
+
+What makes it available is that the entrypoint runs t3's `service-launcher.mjs`
+rather than `t3 serve` directly. t3 offers a remote update only to a server its
+launcher started; anything else is refused with a message naming
+`t3 service install`, which writes a systemd unit and cannot work in a
+container. The launcher needs no systemd — `T3CODE_HOME` is its whole contract.
+
+Inside a workspace:
+
+```bash
+vswarm-t3 status     # the active version, the installed ones, the launcher
+vswarm-t3 active     # the active version alone
+vswarm-t3 bootstrap  # seed from the image, drop superseded versions
+```
+
+`vswarm doctor` asserts per tenant that t3 is running under its launcher and
+names the active version. A workspace failing that check is pinned to whatever
+the image baked, and the only way to move it is recreating it.
+
+Runtimes are rebuildable, so they live on the cache volume and the work volume
+carries only the record of which one is active. Dropping a cache volume costs a
+tenant the version they chose, not their data: the workspace falls back to the
+image floor and the update is one click away again.
 
 ### Dev postgres sidecar (optional, per tenant)
 
