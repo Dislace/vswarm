@@ -60,8 +60,8 @@ flowchart LR
     X["🧑 alex@"] --> A
     A["Cloudflare Access<br/><i>authenticates, stamps email</i>"] --> T["cloudflared<br/><i>the only ingress</i>"]
     T --> P{"angie<br/><i>routes by identity</i>"}
-    P -->|sarah@| WS["workspace: sarah"]
-    P -->|alex@| WA["workspace: alex"]
+    P -->|"sarah@"| WS["workspace: sarah"]
+    P -->|"alex@"| WA["workspace: alex"]
     P -->|unknown| F["403"]
     WS --- DS[("postgres<br/>sarah")]
     WA --- PL["chromium<br/>alex"]
@@ -110,7 +110,7 @@ protecting.
 ```mermaid
 flowchart TD
     H["/home/ai-agent"]
-    H --> W["<b>work</b><br/>checkouts, dirty diffs,<br/>dotfiles, shell history<br/><i>irreplaceable — back this up</i>"]
+    H --> W["<b>work</b><br/>checkouts, dirty diffs,<br/>dotfiles, shell history<br/><i>irreplaceable</i>"]
     H --> C["<b>cache</b><br/>npm, bun, go, pip<br/><i>droppable — it refills</i>"]
     H --> D["<b>dbdata</b><br/>dev postgres<br/><i>copy if it matters</i>"]
 ```
