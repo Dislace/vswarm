@@ -198,6 +198,38 @@ rather than inside the tenant home. Rendering needs to read it to emit
 `POSTGRES_PASSWORD`, and reaching into tenant-owned storage to do that was
 never right. Delete the file to force a new password.
 
+### Tenant sessions
+
+Angie proxies an authenticated Cloudflare Access identity to a workspace and
+injects that tenant's t3 bearer token; the preview host inside the workspace
+uses the same one. `vswarm pair` owns it, and `vswarm up` runs `pair` for every
+tenant.
+
+**One tenant, one session.** `pair` reconciles rather than mints: it reads the
+session id recorded beside the token in
+`generated/angie/tenants/<name>.token`, keeps that session while it is still
+listed and has renewal room left, mints a replacement when it is not, and then
+revokes every other session carrying vswarm's subject. A re-run of `up` is
+therefore not a rotation, and a re-run after a rotation cleans up after itself.
+
+`--subject vswarm/tenant` is the ownership marker, and the reason vswarm keeps
+no registry of its own: `t3 auth session list --json` reports the subject, so
+the set is recoverable from the tenant at any time. Sessions a tenant's own
+agents issue carry the default subject and are never revoked by vswarm.
+
+Renewal room is seven days, or half the session's lifetime when `token_ttl` is
+shorter than a fortnight — a short TTL should still not mean minting on every
+deploy.
+
+This replaced minting unconditionally on every `up`, which revoked nothing: a
+month of deploys had left 387 live, fully scoped, month-long sessions in a
+single tenant, 220 of them never once connected. The first `pair` after this
+change collects them.
+
+`vswarm doctor` checks the invariant per tenant: the injected token is the one
+live session vswarm owns, and it is not near expiry. A token that merely
+authenticates says nothing about how many others are live beside it.
+
 ### Migrating from a bind-mounted home
 
 Earlier versions bind-mounted `./config/<name>/home`. To convert:
@@ -365,25 +397,17 @@ own; the preview host simply does not depend on it.
 build number from its own version, and a mismatch means the baked browser is
 invisible to it.
 
-`entrypoint.sh` starts the host when a token is available, either as
-`T3_PREVIEW_HOST_TOKEN` or in `~/.preview-host.env` (mode `0600`) — the same
-file-delivery shape as `~/.pg.env` and `~/.playwright.env`, so a deployment
-layer can stage it.
+The credential is not the operator's to mint: `vswarm pair` delivers
+`~/.preview-host.env` (mode `0600`) with the same session it injects into
+angie, over the container's stdin rather than argv. See *Tenant sessions*
+below. `T3_PREVIEW_HOST_TOKEN` in the environment still wins, which is how a
+host is run by hand.
 
-Mint the token with the supported CLI, which issues the standard client scopes
-including the `orchestration:operate` that preview automation requires:
-
-```sh
-umask 077
-printf 'T3_PREVIEW_HOST_TOKEN=%s\n' "$(t3 auth session issue \
-  --base-dir "$T3CODE_HOME" --ttl 30d \
-  --label 'vswarm preview host' --token-only)" > ~/.preview-host.env
-```
-
-Substitute the command rather than piping it through `sed`: the CLI emits a
-trailing newline, and a per-line prefix turns that into a second, empty
-assignment. Never pass the token in argv or echo it; `t3 auth session list` shows sessions without
-revealing tokens, and `t3 auth session revoke` retires one.
+`entrypoint.sh` starts the host unconditionally, and the host reads its
+credential once per connection attempt rather than once at startup. That is
+what lets delivery happen after the container is healthy: an attempt made
+before the file exists fails, logs, and backs off, and the one after delivery
+connects. A renewal is picked up the same way, on the next reconnect.
 
 The host authenticates with a bearer header on the WebSocket upgrade. t3 also
 issues browser clients a short-lived ticket via `POST

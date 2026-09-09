@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/dislace/vswarm/internal/config"
@@ -92,7 +90,9 @@ COMMANDS
   tenant add <email> <name>   add a tenant; start + pair it   (--no-up to skip)
   tenant rm <name>            remove a tenant                  (--purge to wipe data)
   tenant ls                   list tenants + container status
-  pair <name>              (re)mint a tenant's T3 token and inject it into angie
+  pair <name>              reconcile a tenant to one T3 session: reuse it while it
+                           has life left, mint when it does not, revoke the rest,
+                           inject it into angie and deliver it to the workspace
   provision <name>         make a tenant's work volume match a staging tree
                            (--from <dir> is the desired state: what it holds is
                             delivered, what vswarm delivered before and it no
@@ -229,118 +229,6 @@ func cmdLogs(args []string) error {
 		svc = "vswarm-" + args[0]
 	}
 	return dockerx.Compose("logs", "-f", svc)
-}
-
-func cmdPair(args []string) error {
-	c, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	if len(args) < 1 {
-		return fmt.Errorf("usage: vswarm pair <name>")
-	}
-	return pair(c, args[0])
-}
-
-func pair(c *config.Config, name string) error {
-	if err := pairMint(c, name); err != nil {
-		return err
-	}
-	if err := reloadProxy(); err != nil {
-		return err
-	}
-	fmt.Printf("paired %s (token injected, proxy reloaded)\n", name)
-	return nil
-}
-
-// reloadProxy is separate from minting so `up` can mint every tenant's token
-// concurrently and reload angie once; concurrent reloads race and each one
-// re-reads the same include glob anyway.
-func reloadProxy() error {
-	_, err := dockerx.Exec(proxyContainer, "angie", "-s", "reload")
-	return err
-}
-
-func pairMint(c *config.Config, name string) error {
-	t, ok := c.Tenant(name)
-	if !ok {
-		return fmt.Errorf("no such tenant %q", name)
-	}
-	container := "vswarm-" + name
-	if err := waitHealthy(container, 150*time.Second); err != nil {
-		return err
-	}
-	out, err := issueSession(container, c.TokenTTL)
-	if err != nil {
-		return err
-	}
-	token, err := extractToken(out)
-	if err != nil {
-		return err
-	}
-	line := fmt.Sprintf("%q %q;\n", t.Email, token)
-	p := filepath.Join(render.GeneratedDir, "angie", "tenants", name+".token")
-	return os.WriteFile(p, []byte(line), 0o600)
-}
-
-// t3 keeps its auth sessions in SQLite under t3BaseDir, and a tenant with a
-// live agent in it holds that database. Issuing then loses the race and comes
-// back "database is locked" -- roughly half the time on a busy tenant, on
-// stdout rather than stderr and with an exit code alone to go on. `up` is
-// meant to be safe to re-run, so a single lost race must not fail it.
-func issueSession(container, ttl string) (string, error) {
-	return retryIssue(sessionIssueAttempts, sessionIssueBackoff, func() (string, error) {
-		return dockerx.Exec(container, "t3", "auth", "session", "issue",
-			"--base-dir", t3BaseDir, "--ttl", ttl, "--json")
-	})
-}
-
-func retryIssue(attempts int, backoff time.Duration, run func() (string, error)) (string, error) {
-	var out string
-	var err error
-	for attempt := 1; attempt <= attempts; attempt++ {
-		if out, err = run(); err == nil {
-			return out, nil
-		}
-		if attempt < attempts {
-			time.Sleep(backoff)
-		}
-	}
-	return out, fmt.Errorf("issue session after %d attempts: %w", attempts, err)
-}
-
-func waitHealthy(container string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		out, err := dockerx.Output("docker", "inspect", "-f", "{{.State.Health.Status}}", container)
-		if err == nil && strings.TrimSpace(out) == "healthy" {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%s did not become healthy within %s", container, timeout)
-		}
-		time.Sleep(3 * time.Second)
-	}
-}
-
-func extractToken(s string) (string, error) {
-	var r struct {
-		Token string `json:"token"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(s)), &r); err != nil {
-		return "", fmt.Errorf("parse token json: %w (output: %s)", err, truncate(s, 200))
-	}
-	if r.Token == "" {
-		return "", fmt.Errorf("empty token in t3 response")
-	}
-	return r.Token, nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
 }
 
 const defaultTenants = `# VibeSwarm tenant manifest — the only file you edit by hand.
