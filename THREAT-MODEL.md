@@ -91,4 +91,7 @@ the raw header. Requires an Angie build with njs + `ngx.fetch`.
   bytes are visible to every tenant, so a mount is a shared read channel, not a
   per-tenant one. Keep sources to a dedicated published directory.
 - **T3 token scope.** v1 injects a session token with broad scopes. Scoping it
-  down to client-only capabilities is planned.
+  down to client-only capabilities is planned. The blast radius is at least
+  bounded in count: `pair` reconciles each tenant to exactly one vswarm-owned
+  session and revokes the rest, so a broad token is one credential per tenant
+  rather than one per deploy.

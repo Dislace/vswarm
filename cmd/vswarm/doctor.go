@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -132,6 +131,12 @@ func doctorChecks(c *config.Config) []checkResult {
 		tenantChecks(c, func(t config.Tenant) checkResult {
 			authed, detail := tenantTokenAuthenticates(t.Name)
 			return checkResult{"token authenticates for " + t.Name, authed, detail}
+		})...)
+
+	results = append(results,
+		tenantChecks(c, func(t config.Tenant) checkResult {
+			ok, detail := oneLiveSession(t.Name, time.Now())
+			return checkResult{"exactly one vswarm session for " + t.Name, ok, detail}
 		})...)
 
 	volumeResults := make([][]checkResult, len(c.Tenants))
@@ -340,12 +345,11 @@ func dbNetDetail(nets []string, err error) string {
 }
 
 func tenantTokenAuthenticates(name string) (bool, string) {
-	p := filepath.Join(render.GeneratedDir, "angie", "tenants", name+".token")
-	raw, err := os.ReadFile(p)
+	raw, err := os.ReadFile(tokenPath(name))
 	if err != nil {
 		return false, "no token file"
 	}
-	token := tokenFromLine(string(raw))
+	_, token := parseTokenFile(string(raw))
 	if token == "" {
 		return false, "empty token"
 	}
@@ -361,12 +365,31 @@ func tenantTokenAuthenticates(name string) (bool, string) {
 	return true, ""
 }
 
-func tokenFromLine(s string) string {
-	fields := strings.Split(s, `"`)
-	if len(fields) < 4 {
-		return ""
+// oneLiveSession is the invariant `pair` maintains: the tenant holds a single
+// vswarm-owned session, and it is the one angie injects, with life left in it.
+// A token that merely authenticates says nothing about how many others are
+// still live beside it, or whether this one expires next week.
+func oneLiveSession(name string, now time.Time) (bool, string) {
+	raw, err := os.ReadFile(tokenPath(name))
+	if err != nil {
+		return false, "no token file"
 	}
-	return fields[3]
+	id, _ := parseTokenFile(string(raw))
+	if id == "" {
+		return false, "token file records no session id"
+	}
+	live, err := listSessions("vswarm-" + name)
+	if err != nil {
+		return false, errStr(err)
+	}
+	stale := staleSessions(live, id)
+	if len(stale) > 0 {
+		return false, fmt.Sprintf("%d other vswarm sessions still live", len(stale))
+	}
+	if !reusable(live, id, now) {
+		return false, "the injected session is unknown or near expiry"
+	}
+	return true, ""
 }
 
 func adminKeyPath() string {
