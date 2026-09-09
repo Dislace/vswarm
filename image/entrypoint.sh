@@ -28,11 +28,11 @@ trap forward TERM INT
 
 # The host serves t3's preview automation tools from the browser baked into this
 # image. It needs a credential, delivered either in the environment or as
-# ~/.preview-host.env the way ~/.pg.env is delivered.
-if [[ -n "${T3_PREVIEW_HOST_TOKEN:-}" || -r /home/ai-agent/.preview-host.env ]]; then
-  node "${PREVIEW_HOST}" &
-  preview_pid=$!
-fi
+# ~/.preview-host.env the way ~/.pg.env is delivered. Starting it unconditionally
+# is what lets `vswarm pair` deliver that file after the container is healthy:
+# the host retries until the credential appears, and idles cheaply until then.
+node "${PREVIEW_HOST}" &
+preview_pid=$!
 
 while true; do
   "${T3_BIN}" serve \

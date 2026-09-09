@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 const composeFile = "generated/docker-compose.yml"
@@ -42,6 +43,22 @@ func Output(name string, args ...string) (string, error) {
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
 		return out.String(), fmt.Errorf("%s %v: %v: %s", name, args, err, errb.String())
+	}
+	return out.String(), nil
+}
+
+// ExecStdin feeds a command's stdin instead of passing the value in argv,
+// which every process in the container can read. Callers deliver secrets
+// this way.
+func ExecStdin(container, stdin string, args ...string) (string, error) {
+	full := append([]string{"exec", "-i", container}, args...)
+	var out, errb bytes.Buffer
+	cmd := exec.Command("docker", full...)
+	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		return out.String(), fmt.Errorf("docker exec %s: %v: %s", container, err, errb.String())
 	}
 	return out.String(), nil
 }

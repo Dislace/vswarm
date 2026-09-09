@@ -158,14 +158,22 @@ const backoff = Schedule.exponential("1 second").pipe(
   Schedule.union(Schedule.spaced("30 seconds")),
 )
 
-const main = Effect.gen(function* () {
-  const config = yield* Effect.promise(load)
-  yield* session(config).pipe(
+// The credential is loaded per attempt, not once at startup: vswarm delivers
+// ~/.preview-host.env after the container is healthy and renews it in place,
+// so an attempt that starts before delivery fails and the next one picks it
+// up, and a rotation is picked up on the next reconnect. Nothing here has to
+// know which of the two happened.
+const attempt = Effect.gen(function* () {
+  const config = yield* Effect.tryPromise(load)
+  return yield* session(config).pipe(
     Effect.provide(protocolLayer(config)),
     Effect.scoped,
-    Effect.tapError((cause) => Effect.logError(`preview host disconnected: ${cause}`)),
-    Effect.retry(backoff),
   )
 })
+
+const main = attempt.pipe(
+  Effect.tapError((cause) => Effect.logError(`preview host not serving: ${cause}`)),
+  Effect.retry(backoff),
+)
 
 NodeRuntime.runMain(main)
