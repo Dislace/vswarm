@@ -9,12 +9,20 @@ tenant, or an unauthenticated attacker, can reach.
 1. **Cloudflare Access (edge)** — the real gatekeeper. It authenticates identity
    (GitHub OAuth or your IdP), enforces the allow-policy, and injects
    `Cf-Access-Authenticated-User-Email`. Nothing reaches the origin without
-   passing it.
+   passing it, with one deliberate exception: `OPTIONS` is configured to bypass
+   Access (see [DEPLOYMENT.md](DEPLOYMENT.md#cors-preflights)), because a CORS
+   preflight carries no credentials to authenticate and rejecting it locks out
+   every browser-based client. A preflight is a question about what a later
+   request would be allowed to do; it carries no body and returns none, and the
+   request it precedes is authenticated normally.
 2. **Cloudflare Tunnel (`cloudflared`)** — the *only* ingress to the origin. No
    host ports are published; the stack is not reachable from the public internet
    except through the Access-authenticated tunnel.
 3. **angie proxy** — routes by the Access identity to that user's container and
-   injects that user's T3 token. Fails closed (`403`) on unknown identity.
+   injects that user's T3 token. Fails closed (`403`) on unknown identity. It
+   answers CORS preflights itself, before that gate, since a preflight has no
+   identity to route on; the answer echoes what the preflight asked for and grants
+   nothing, because the request that follows still arrives at the gate.
 4. **T3 token (per tenant)** — a lock T3 puts on itself when network-reachable.
    VibeSwarm satisfies it on the user's behalf; it is not the primary identity
    control.

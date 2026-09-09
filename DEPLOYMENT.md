@@ -18,9 +18,51 @@ flag/env-driven, and exits non-zero on failure.
 | Per-tenant credentials | stage a tree, `vswarm provision` | the deployment layer owns the key material; `vswarm` owns the path and the modes |
 | Cloudflare Tunnel | dashboard/API | route hostname → `http://vswarm-proxy:8080` |
 | Cloudflare Access policy | dashboard/API | bind to the hostname; allow only `tenants.yaml` emails |
+| OPTIONS reaching the origin | dashboard/API | **required** — see [CORS preflights](#cors-preflights) |
 
 `tenants.yaml` and `.env` are **consumed, not owned** by this repo — they are
 gitignored, and the deployment layer templates the real ones.
+
+### CORS preflights
+
+**An access layer left on its defaults makes the workspace unreachable to every
+browser-based client, and the symptom does not look like a policy problem.**
+
+The proxy routes by identity: it reads the authenticated email the access layer
+adds and maps it to a workspace. A CORS preflight carries no credentials — that is
+the specification, not a client bug — so it arrives with no identity to route on.
+Any client that is a browser engine sends one before a cross-origin request with an
+`Authorization` header, which is what pairing a workspace as a remote environment
+is.
+
+vswarm's proxy answers preflights itself, before the identity check, so the
+preflight is fine once it *arrives*. What it cannot do is get past an access layer
+that authenticates first: Cloudflare Access answers an unauthenticated `OPTIONS`
+with `403`, the browser reports a transport error rather than a status, and the
+client shows a failure with no HTTP response in it at all. A native client — a
+mobile app, `curl` — sends no preflight and works throughout, which is what makes
+this look like a client bug rather than a deployment one.
+
+So the deployment layer must let `OPTIONS` through to the origin. On Cloudflare
+Access that is **`options_preflight_bypass`** on the application ("Bypass OPTIONS
+requests to origin"). Do not reach for the `cors_headers` alternative, which has
+Access answer preflights itself: it is mutually exclusive with the bypass, and it
+puts a second copy of the allowed methods and headers somewhere that nothing keeps
+in step with the workspace.
+
+`vswarm doctor` checks both halves — that the proxy answers a preflight, and that
+one sent to the public hostname arrives. The second skips on a host that cannot
+reach its own public name, and otherwise names the setting to change.
+
+```
+$ curl -sS -o /dev/null -w '%{http_code}\n' -X OPTIONS \
+    -H 'Origin: https://preflight.invalid' \
+    -H 'Access-Control-Request-Method: GET' \
+    -H 'Access-Control-Request-Headers: authorization' \
+    https://<domain>/
+204     # correct
+403     # the access layer is rejecting preflights
+```
 
 ## Tenant storage
 

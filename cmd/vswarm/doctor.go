@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,6 +120,11 @@ func doctorChecks(c *config.Config) []checkResult {
 	_, aerr := dockerx.Exec(proxyContainer, "angie", "-t")
 	check("angie -t config valid", aerr == nil, errStr(aerr))
 
+	answered, detail := proxyAnswersPreflight()
+	check("proxy answers CORS preflight without identity", answered, detail)
+
+	results = append(results, edgeForwardsPreflight(c.Domain))
+
 	published, detail := anyPublishedPorts()
 	check("no published host ports", !published, detail)
 
@@ -233,6 +239,70 @@ func doctorChecks(c *config.Config) []checkResult {
 	}
 
 	return results
+}
+
+// proxyAnswersPreflight asks the proxy the question a browser engine asks before
+// every cross-origin request that carries an Authorization header. It has to be
+// answered without an identity, because a preflight carries none.
+func proxyAnswersPreflight() (bool, string) {
+	out, err := dockerx.Exec(proxyContainer, "curl", "-sS", "-m", "5", "-o", "/dev/null",
+		"-w", "%{http_code}", "-X", "OPTIONS",
+		"-H", "Origin: https://preflight.invalid",
+		"-H", "Access-Control-Request-Method: GET",
+		"-H", "Access-Control-Request-Headers: authorization",
+		"http://"+render.ProxyIP+":"+render.ProxyPort+"/")
+	if err != nil {
+		return false, errStr(err)
+	}
+	code := strings.TrimSpace(out)
+	if code != "204" {
+		return false, "answered " + code + ", want 204"
+	}
+	return true, ""
+}
+
+// edgeForwardsPreflight checks the half of the preflight path that lives outside
+// this repo. The access layer in front of the proxy authenticates by identity, and
+// a preflight has none, so an access layer left on its defaults rejects every
+// preflight before the proxy can answer it — and no amount of proxy configuration
+// shows up as anything but an unreachable workspace.
+//
+// A host that cannot reach its own public name at all is not evidence either way,
+// so that skips rather than fails.
+func edgeForwardsPreflight(domain string) checkResult {
+	if domain == "" {
+		return checkResult{}
+	}
+
+	req, err := http.NewRequest(http.MethodOptions, "https://"+domain+"/", nil)
+	if err != nil {
+		return checkResult{}
+	}
+	req.Header.Set("Origin", "https://preflight.invalid")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	req.Header.Set("Access-Control-Request-Headers", "authorization")
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return checkResult{}
+	}
+	defer resp.Body.Close()
+
+	return classifyEdgePreflight(domain, resp.StatusCode)
+}
+
+const edgePreflightCheck = "edge forwards CORS preflights to the proxy"
+
+// classifyEdgePreflight reads a preflight's status the way an operator needs it
+// read: the proxy answers 204, so anything else came from in front of it.
+func classifyEdgePreflight(domain string, status int) checkResult {
+	if status == http.StatusNoContent {
+		return checkResult{edgePreflightCheck, true, ""}
+	}
+	return checkResult{edgePreflightCheck, false, fmt.Sprintf(
+		"https://%s answered %d to a preflight; the proxy answers 204, so something in "+
+			"front of it is rejecting preflights before they arrive. Let OPTIONS reach "+
+			"the origin (Cloudflare Access: options_preflight_bypass).", domain, status)}
 }
 
 func anyPublishedPorts() (bool, string) {
