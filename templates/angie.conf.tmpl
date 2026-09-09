@@ -55,6 +55,28 @@ http {
         proxy_socket_keepalive on;
 
         location / {
+            # A CORS preflight carries no credentials, by specification -- no cookie,
+            # no Access identity header -- so it can never map to an upstream and the
+            # identity check below would reject every one of them. Any client that is
+            # a browser engine sends one before a cross-origin request with an
+            # Authorization header, which is what pairing a workspace as a remote
+            # environment is, so rejecting them makes the workspace unreachable to
+            # every such client. Answer it here instead.
+            #
+            # Answering permissively grants nothing: a preflight carries no data and
+            # returns none, and the request it precedes still arrives without an
+            # identity and is still rejected below. Echoing what the preflight asked
+            # for, rather than restating a list, is also what keeps this from drifting
+            # away from whatever the workspace behind it actually accepts.
+            if ($request_method = OPTIONS) {
+                add_header Access-Control-Allow-Origin      "$http_origin" always;
+                add_header Access-Control-Allow-Methods     "$http_access_control_request_method" always;
+                add_header Access-Control-Allow-Headers     "$http_access_control_request_headers" always;
+                add_header Access-Control-Max-Age           600 always;
+                add_header Content-Length                   0 always;
+                return 204;
+            }
+
             if ($vswarm_upstream = "") {
                 return 403 "vibeswarm: no workspace mapped for this identity\n";
             }

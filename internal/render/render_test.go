@@ -428,3 +428,44 @@ func TestRenderKeepsADeclaredSubnetWhenAnEarlierTenantLeaves(t *testing.T) {
 		t.Fatalf("subnet = %s, want 172.31.12.0/24", after.Subnet)
 	}
 }
+
+// A CORS preflight carries no identity, so the identity gate rejects every one of
+// them. The proxy can only answer a preflight if it answers before that gate — the
+// two blocks working in the wrong order is the whole bug, and it is invisible in a
+// config that contains both.
+func TestAngieAnswersPreflightBeforeTheIdentityGate(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain: "code.example.com",
+		Image:  "registry.example.com/vswarm:v1",
+		Tenants: []config.Tenant{
+			{Email: "alice@example.com", Name: "alice"},
+		},
+	}
+	if err := Render(c); err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	conf := readFile(t, filepath.Join(GeneratedDir, "angie", "angie.conf"))
+
+	preflight := strings.Index(conf, "if ($request_method = OPTIONS)")
+	if preflight < 0 {
+		t.Fatal("angie.conf answers no CORS preflight; every browser-engine client is locked out")
+	}
+	identityGate := strings.Index(conf, `if ($vswarm_upstream = "")`)
+	if identityGate < 0 {
+		t.Fatal("angie.conf no longer gates on identity")
+	}
+	if preflight > identityGate {
+		t.Error("angie.conf gates on identity before answering the preflight, " +
+			"so every preflight is rejected as an unmapped identity")
+	}
+	for _, want := range []string{
+		`add_header Access-Control-Allow-Origin      "$http_origin" always;`,
+		`add_header Access-Control-Allow-Headers     "$http_access_control_request_headers" always;`,
+		"return 204;",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("preflight answer missing %q", want)
+		}
+	}
+}
