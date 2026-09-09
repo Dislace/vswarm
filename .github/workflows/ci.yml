@@ -43,7 +43,7 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck image/entrypoint.sh image/prompt.sh image/vswarm-repos scripts/*.sh
+          shellcheck image/entrypoint.sh image/prompt.sh image/vswarm-repos image/vswarm-t3 scripts/*.sh
       - name: The preview host resolves the browser the image bakes
         run: scripts/check-playwright-pin.sh
 
@@ -63,4 +63,7 @@ jobs:
           cache-to: type=gha,mode=min
       - name: Verify the workspace serves
         run: |
-          docker run --rm --entrypoint sh vswarm/workspace:ci -c 't3 --version'
+          docker run --rm --entrypoint sh vswarm/workspace:ci -c '
+            t3 --version &&
+            vswarm-t3 bootstrap &&
+            test -r "$T3CODE_HOME/runtime/versions/$(vswarm-t3 active)/node_modules/t3/dist/bin.mjs"'

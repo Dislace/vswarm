@@ -169,7 +169,7 @@ func staleSessions(live []session, keepID string) []string {
 
 func listSessions(container string) ([]session, error) {
 	out, err := retryIssue(sessionIssueAttempts, sessionIssueBackoff, func() (string, error) {
-		return dockerx.Exec(container, "t3", "auth", "session", "list",
+		return dockerx.Exec(container, "vswarm-t3", "cli", "auth", "session", "list",
 			"--base-dir", t3BaseDir, "--json")
 	})
 	if err != nil {
@@ -185,7 +185,7 @@ func listSessions(container string) ([]session, error) {
 func revokeSessions(container string, ids []string) error {
 	for _, id := range ids {
 		if _, err := retryIssue(sessionIssueAttempts, sessionIssueBackoff, func() (string, error) {
-			return dockerx.Exec(container, "t3", "auth", "session", "revoke",
+			return dockerx.Exec(container, "vswarm-t3", "cli", "auth", "session", "revoke",
 				"--base-dir", t3BaseDir, id)
 		}); err != nil {
 			return fmt.Errorf("revoke %s: %w", id, err)
@@ -201,7 +201,7 @@ func revokeSessions(container string, ids []string) error {
 // meant to be safe to re-run, so a single lost race must not fail it.
 func issueSession(container, ttl string) (session, error) {
 	out, err := retryIssue(sessionIssueAttempts, sessionIssueBackoff, func() (string, error) {
-		return dockerx.Exec(container, "t3", "auth", "session", "issue",
+		return dockerx.Exec(container, "vswarm-t3", "cli", "auth", "session", "issue",
 			"--base-dir", t3BaseDir, "--ttl", ttl, "--json",
 			"--subject", sessionSubject, "--label", sessionLabel)
 	})

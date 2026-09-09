@@ -23,6 +23,10 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
+# The floor a fresh workspace starts from. t3 installs and activates newer
+# versions itself, under the tenant's own ${T3CODE_HOME}/runtime, so bumping
+# this does not move the fleet -- it only shortens a new workspace's first
+# update.
 # renovate: datasource=npm depName=t3
 ARG T3_VERSION=0.0.40
 RUN --mount=type=cache,target=/root/.npm \
@@ -66,13 +70,21 @@ COPY preview-host/*.ts /opt/preview-host/
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY vswarm-repos /usr/local/bin/vswarm-repos
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/vswarm-repos
+COPY vswarm-t3 /usr/local/bin/vswarm-t3
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/vswarm-repos /usr/local/bin/vswarm-t3
 
 COPY prompt.sh /tmp/prompt.sh
 RUN cat /tmp/prompt.sh >> /etc/bash.bashrc && rm /tmp/prompt.sh
 
 USER 1000
-ENV T3CODE_HOME=/home/ai-agent/.config/t3
+# The service launcher starts `t3 serve` with no arguments of its own, so what
+# would be flags are environment, and the project root is the working directory
+# the child inherits.
+ENV T3CODE_HOME=/home/ai-agent/.config/t3 \
+    T3CODE_MODE=web \
+    T3CODE_HOST=0.0.0.0 \
+    T3CODE_PORT=3773 \
+    T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD=true
 WORKDIR /home/ai-agent/repos
 
 EXPOSE 3773

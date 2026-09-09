@@ -42,8 +42,8 @@ tenant, or an unauthenticated attacker, can reach.
 - **SSH key perms.** Per-tenant `.ssh` is `0700`.
 - **Declared mounts are read-only and off tenant state.** A `mounts:` entry is
   rendered `:ro` and rejected if its target takes, shadows, or sits under a path
-  the workspace already mounts — the tenant home, the cache, the tooling
-  manifest, `/run`. `doctor` re-checks each one in the running container.
+  the workspace already occupies — the tenant home, the cache, the baked
+  browsers, `/run`. `doctor` re-checks each one in the running container.
 
 ### Workspace privilege posture (dev-env default)
 
@@ -103,3 +103,12 @@ the raw header. Requires an Angie build with njs + `ngx.fetch`.
   bounded in count: `pair` reconciles each tenant to exactly one vswarm-owned
   session and revokes the rest, so a broad token is one credential per tenant
   rather than one per deploy.
+- **Preview automation reaches the viewer's browser, not the workspace.** t3
+  routes an agent's `preview_*` calls to whichever desktop client is focused and
+  runs them against that client's own webview — the browser on the operator's
+  laptop, with the operator's cookies and session. This is upstream's design and
+  it is what makes the agent and the person share one page, but it means the
+  workspace boundary does not contain preview automation: `preview_evaluate` is
+  arbitrary JavaScript on the machine holding the tab. The workspace's own
+  preview host only answers when no client is focused. Treat an agent's preview
+  access as equivalent to handing it the browser you are watching it in.

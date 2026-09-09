@@ -10,7 +10,7 @@ mkdir -p "${T3CODE_HOME}" \
   /home/ai-agent/.cache/go/build \
   /home/ai-agent/.cache/pip
 
-T3_BIN=/usr/local/bin/t3
+LAUNCHER=/usr/local/lib/node_modules/t3/dist/service-launcher.mjs
 PREVIEW_HOST=/opt/preview-host/host.ts
 child_pid=""
 preview_pid=""
@@ -34,14 +34,18 @@ trap forward TERM INT
 node "${PREVIEW_HOST}" &
 preview_pid=$!
 
+# t3 serves from a runtime it owns under ${T3CODE_HOME}/runtime, so that the
+# app's own update can install a version and switch to it without this image
+# being rebuilt. Seeding that runtime from the baked copy is what lets a fresh
+# workspace start with no network.
+vswarm-t3 bootstrap
+
+# The launcher supervises t3 -- it restarts it across an update and rolls back a
+# version that will not open the database -- but it exits when t3 dies for any
+# other reason, expecting its own supervisor to bring it back. Under systemd
+# that is Restart=; here it is this loop.
 while true; do
-  "${T3_BIN}" serve \
-    --mode web \
-    --host 0.0.0.0 \
-    --port 3773 \
-    --base-dir "${T3CODE_HOME}" \
-    --auto-bootstrap-project-from-cwd \
-    /home/ai-agent/repos &
+  node "${LAUNCHER}" &
   child_pid=$!
   set +e
   wait "${child_pid}"
@@ -51,7 +55,7 @@ while true; do
   if [[ "${stopping}" -eq 1 ]]; then
     exit "${status}"
   fi
-  # t3 exited on its own, so bring it back; brief pause so a crash loop
-  # cannot spin.
+  # The launcher exited on its own, so bring it back; brief pause so a crash
+  # loop cannot spin.
   sleep 2
 done

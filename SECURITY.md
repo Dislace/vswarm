@@ -16,11 +16,12 @@ you.
 ## Scope
 
 In scope: identity/routing bypass, tenant isolation escape, token leakage,
-proxy misconfiguration, container hardening gaps, and tooling-updater
-verification or path-safety bypasses.
+proxy misconfiguration, container hardening gaps, and path-safety bypasses in
+credential delivery (`vswarm provision`).
 
 Out of scope (documented limitations — see [THREAT-MODEL.md](THREAT-MODEL.md)):
-open tenant egress, shared-kernel container boundary, broad T3 token scope in v1.
+open tenant egress, shared-kernel container boundary, broad T3 token scope in
+v1, and preview automation reaching the viewer's browser.
 
 ## Hardening checklist for operators
 
