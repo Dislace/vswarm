@@ -114,9 +114,9 @@ mounts:
 
 Each entry is published read-only into every workspace container. Both paths
 must be absolute and canonical, targets must be unique, and none may take,
-shadow or sit under a path the workspace already mounts — the tenant home, the
-cache, `/run`. `vswarm doctor` re-checks every declared mount inside each
-running workspace.
+shadow or sit under a path the workspace already occupies — the tenant home,
+the cache, the baked browsers, `/run`. `vswarm doctor` re-checks every declared
+mount inside each running workspace.
 
 Sources are otherwise unconstrained and Docker resolves them on the host, so a
 source is as trusted as whoever writes `tenants.yaml`; keep them inside one
@@ -185,18 +185,13 @@ removal is not recursive either, so a provisioned path the tenant has since
 replaced with a directory keeps its contents. A missing or unreadable list
 means nothing is removed: the failure mode is a file left behind.
 
-`--remove <rel-path>` still exists for whole trees vswarm never delivered — the
-one-time cleanup of anything provisioned before the list existed. It is not for
-standing use; a caller reaching for it repeatedly wants the staging tree instead.
+`--remove <rel-path>` is an escape hatch for whole trees vswarm never delivered
+and therefore cannot take back on its own. It is not for standing use; a caller
+reaching for it repeatedly wants the staging tree instead.
 
-It also delivers `~/.pg.env` for postgres tenants on its own — `vswarm up` runs
-it for every tenant, so a fresh workspace gets its database contract with no
-extra step.
-
-The postgres password now persists at `config/<name>/pg.password` (mode `0600`)
-rather than inside the tenant home. Rendering needs to read it to emit
-`POSTGRES_PASSWORD`, and reaching into tenant-owned storage to do that was
-never right. Delete the file to force a new password.
+`provision` also delivers `~/.pg.env` for postgres tenants on its own, and
+`vswarm up` runs it for every tenant, so a fresh workspace gets its database
+contract with no extra step.
 
 ### Tenant sessions
 
@@ -221,18 +216,14 @@ Renewal room is seven days, or half the session's lifetime when `token_ttl` is
 shorter than a fortnight — a short TTL should still not mean minting on every
 deploy.
 
-This replaced minting unconditionally on every `up`, which revoked nothing: a
-month of deploys had left 387 live, fully scoped, month-long sessions in a
-single tenant, 220 of them never once connected. The first `pair` after this
-change collects them.
-
 `vswarm doctor` checks the invariant per tenant: the injected token is the one
 live session vswarm owns, and it is not near expiry. A token that merely
 authenticates says nothing about how many others are live beside it.
 
-### Migrating from a bind-mounted home
+### Migrating a legacy bind-mounted home
 
-Earlier versions bind-mounted `./config/<name>/home`. To convert:
+`vswarm migrate` converts a tenant that still has its home bind-mounted from
+`./config/<name>/home`. Do the whole roster:
 
 ```bash
 vswarm up                  # creates the volumes with the configured driver
@@ -242,14 +233,7 @@ docker compose -f generated/docker-compose.yml start vswarm-<name>
 vswarm doctor
 ```
 
-The stop comes **after** `up`, not before: `up` creates the volumes but also
-starts the container, and `migrate` refuses to run against a running one. The
-workspace is on an empty home between `up` and `migrate`, so keep the window
-short and expect the tenant to be logged out of it.
-
-To convert one tenant at a time instead of the whole roster, render first and
-recreate only that service — the others keep running on their existing
-containers:
+or one tenant, leaving the others on their running containers:
 
 ```bash
 vswarm render
@@ -259,11 +243,15 @@ vswarm migrate <name>
 docker compose -f generated/docker-compose.yml start vswarm-<name>
 ```
 
-`migrate` refuses to run against a running container, lifts the postgres
-password out of the old `~/.pg.env` into `config/<name>/pg.password`, and
-**leaves the source directory in place** — verify the workspace before you
-delete anything. `--keep-derived` copies the caches too if you would rather
-not re-warm them.
+The stop comes **after** `up` in both, because `up` is what creates the volumes
+and `migrate` refuses to run against a running container. The workspace serves
+an empty home in between, so keep the window short and expect the tenant to be
+logged out of it.
+
+`migrate` lifts the postgres password out of the old `~/.pg.env` into
+`config/<name>/pg.password` and **leaves the source directory in place** —
+verify the workspace before you delete anything. `--keep-derived` copies the
+caches too, if re-warming them would cost more than moving them.
 
 ### Installing a release
 
@@ -297,21 +285,14 @@ learn: the config key already names any image you like.
 ### Workspace tooling
 
 The image ships t3 and the base toolchain (git, gh, node, python3, build
-essentials, uv, vim). It does **not** manage agent CLIs. Install them the
-provider's own way from inside the workspace:
+essentials, uv, vim). It does **not** manage agent CLIs: those are installed by
+hand from inside the workspace, land in `~/.local` on the work volume, and are
+nobody's to reconcile or version-check but the person who installed them.
 
-```bash
-npm i -g @anthropic-ai/claude-code @openai/codex
-```
-
-`NPM_CONFIG_PREFIX` points at `~/.local`, which is on the tenant's work volume
-and ahead of `/usr/local/bin` on PATH, so a hand-installed CLI persists across
-container recreates and image bumps. Nothing in vswarm reconciles, prunes or
-version-checks these; the operator owns them.
-
-t3 itself is pinned in `image/Dockerfile` (`ARG T3_VERSION`, Renovate-tracked)
-because the workspace cannot serve without it — but that pin is only the floor a
-fresh workspace starts from. See [Updating t3](#updating-t3).
+The one pin that matters to a deployment is t3's, in `image/Dockerfile`
+(`ARG T3_VERSION`, Renovate-tracked), because the workspace cannot serve
+without it. That pin is only the floor a fresh workspace starts from — see
+[Updating t3](#updating-t3).
 
 ## Updating t3
 
@@ -381,6 +362,10 @@ PGPASSWORD=<minted>
 PGDATABASE=postgres
 ```
 
+`vswarm doctor` checks two invariants per postgres tenant: no other tenant's
+workspace can open a TCP connection to this tenant's db container, and the db
+container is attached to exactly its own tenant network.
+
 ### Browsers for test suites (every tenant)
 
 The workspace image bakes Chromium at `/opt/ms-playwright`, pinned by the
@@ -392,8 +377,8 @@ The path is outside `~` and `~/.cache` on purpose: both are named-volume mount
 points and would shadow an image-baked directory at runtime.
 
 A repo pinning a *different* Playwright version downloads its own browser into
-`~/.cache/ms-playwright` as before — correct, just not free. Keeping repo pins
-and `PLAYWRIGHT_VERSION` aligned is what makes it free.
+`~/.cache/ms-playwright` — correct, just not free. Keeping repo pins and
+`PLAYWRIGHT_VERSION` aligned is what makes it free.
 
 ### Playwright sidecar (optional, per tenant)
 
@@ -415,9 +400,9 @@ in the workspace instead.
 Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 `dropdb && createdb && bun run migration:run`.
 
-#### Serving t3's preview tools
+### Serving t3's preview tools
 
-Agents get 15 `preview_*` tools (navigate, click, snapshot, resize, …) whether or
+Agents get 14 `preview_*` tools (navigate, click, snapshot, resize, …) whether or
 not anything answers them; without a host they fail with *"No preview automation
 host is available"*, and agents fall back to installing their own browser. The
 preview host closes that gap: it holds one WebSocket to the workspace's own t3
@@ -437,10 +422,10 @@ build number from its own version, and a mismatch means the baked browser is
 invisible to it.
 
 The credential is not the operator's to mint: `vswarm pair` delivers
-`~/.preview-host.env` (mode `0600`) with the same session it injects into
-angie, over the container's stdin rather than argv. See *Tenant sessions*
-below. `T3_PREVIEW_HOST_TOKEN` in the environment still wins, which is how a
-host is run by hand.
+`~/.preview-host.env` (mode `0600`) with the same session it injects into angie
+(see [Tenant sessions](#tenant-sessions)), over the container's stdin rather
+than argv. `T3_PREVIEW_HOST_TOKEN` in the environment wins over the file, which
+is how a host is run by hand.
 
 `entrypoint.sh` starts the host unconditionally, and the host reads its
 credential once per connection attempt rather than once at startup. That is
@@ -457,10 +442,6 @@ The host advertises 12 of the 14 operations — everything except
 `recordingStart`/`recordingStop`. t3 negotiates capabilities per host and routes
 around what is not advertised, so the remaining two simply stay unavailable
 rather than failing at call time.
-
-`vswarm doctor` gains two invariants per postgres tenant: (a) no other tenant's
-workspace can open a TCP connection to this tenant's db container, and (b) the
-db container is attached to exactly its own tenant network.
 
 ### Admin host SSH access (optional, per tenant)
 
@@ -491,19 +472,19 @@ Contract the deployment layer implements:
   authorizes that key on a different tenant's subnet. vswarm refuses a `net_id`
   outside 10-254 or shared by two tenants.
 
-`vswarm doctor` gains two invariants:
+`vswarm doctor` checks two invariants:
 
-- **(a)** no NON-admin tenant home contains a `~/.ssh/vswarm-admin` file — a
-  stranded admin key on a tenant that lost the flag fails the gate;
-- **(b)** every admin tenant's `~/.ssh/vswarm-admin` exists with mode `0600`.
+- no non-admin tenant home contains a `~/.ssh/vswarm-admin` file — a stranded
+  admin key on a tenant that lost the flag fails the gate;
+- every admin tenant's `~/.ssh/vswarm-admin` exists with mode `0600`.
 
 Both are read from **inside** the workspace with `stat`, not from a host path.
 That is forced by the volume split, and it is the stricter check anyway: it
 verifies what the tenant actually sees rather than what the deployment layer
 believes it wrote.
 
-Usage from inside an admin workspace (the gateway is the tenant's own bridge
-gateway, `172.31.<10+index>.1`, where index is the tenant's roster position):
+From inside an admin workspace, the host answers on the tenant's own bridge
+gateway, `172.31.<net_id>.1`:
 
 ```sh
 ssh -i ~/.ssh/vswarm-admin ubuntu@172.31.10.1
@@ -526,7 +507,7 @@ vswarm doctor --wait=60s            # gate: non-zero if any isolation invariant 
 - `vswarm doctor`: `0` only if every invariant PASSes — use it as a deploy gate.
   `--wait=<duration>` re-runs the whole set until it passes or the deadline
   expires, so the caller does not need a retry loop around it. Without it,
-  doctor makes one pass, as before.
+  doctor makes a single pass.
 - `vswarm up --json` and `vswarm status --json` write a JSON document to
   **stdout** and move progress prose to stderr. `up` reports one entry per
   declared container:
@@ -544,8 +525,7 @@ vswarm doctor --wait=60s            # gate: non-zero if any isolation invariant 
 
   `action` is `created`, `recreated`, `unchanged` or `absent`, and `changed` is
   true for anything that is not `unchanged`. Use it directly for
-  `changed_when`; capturing container ids before and after `up` and diffing
-  them is what this replaces.
+  `changed_when`, rather than diffing container ids around the call.
 - Rendered artifacts land in `generated/` (gitignored; contain per-tenant tokens
   — treat as secret).
 
