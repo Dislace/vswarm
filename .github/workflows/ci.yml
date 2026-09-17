@@ -61,9 +61,21 @@ jobs:
           tags: vswarm/workspace:ci
           cache-from: type=gha
           cache-to: type=gha,mode=min
+      # Asserting on the seeded files alone is what let a t3 repackaging reach a
+      # tenant: the runtime looked complete while the launcher the entrypoint
+      # runs had stopped existing. So start the image the way a tenant does and
+      # require its own healthcheck -- t3 answering on 3773 -- to pass.
       - name: Verify the workspace serves
         run: |
-          docker run --rm --entrypoint sh vswarm/workspace:ci -c '
-            t3 --version &&
-            vswarm-t3 bootstrap &&
-            test -r "$T3CODE_HOME/runtime/versions/$(vswarm-t3 active)/node_modules/t3/dist/bin.mjs"'
+          docker run -d --name ci-workspace vswarm/workspace:ci
+          for _ in $(seq 60); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' ci-workspace)"
+            case "${status}" in healthy | unhealthy) break ;; esac
+            sleep 5
+          done
+          docker logs ci-workspace
+          docker exec ci-workspace vswarm-t3 status
+          test "${status}" = healthy
+      - name: Stop the workspace
+        if: always()
+        run: docker rm -f ci-workspace || true

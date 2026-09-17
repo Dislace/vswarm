@@ -10,7 +10,7 @@ mkdir -p "${T3CODE_HOME}" \
   /home/ai-agent/.cache/go/build \
   /home/ai-agent/.cache/pip
 
-LAUNCHER=/usr/local/lib/node_modules/t3/dist/service-launcher.mjs
+T3_RUNTIME=/opt/t3-runtime
 PREVIEW_HOST=/opt/preview-host/host.ts
 child_pid=""
 preview_pid=""
@@ -40,40 +40,19 @@ preview_pid=$!
 # workspace start with no network.
 vswarm-t3 bootstrap
 
-# T3 builds its Antigravity browser-suppression helper as
-# `<process.execPath> -e <js> -- <url>` and fails install validation when the
-# marker it prints does not come back. Native runtimes (t3-linux-*) cannot
-# evaluate `-e`, so wrap each installed one with a shim that runs exactly that
-# shape under node and passes everything else to the real binary. Idempotent.
-# Runs on (re)start: a T3 self-update that lands a fresh native runtime
-# mid-session stays unwrapped until the launcher restarts.
-wrap_t3_native() {
-  local pkg bin
-  for pkg in "${T3CODE_HOME}/runtime/versions/"*/node_modules/@t3code/t3-linux-*/package.json; do
-    [ -r "${pkg}" ] || continue
-    bin="${pkg%/package.json}/t3"
-    [ -f "${bin}" ] || continue
-    [ ! -f "${bin}.real" ] || continue
-    mv "${bin}" "${bin}.real"
-    cat >"${bin}" <<'SHIM'
-#!/bin/sh
-# Applied by vswarm/image/entrypoint.sh; the rationale lives there.
-if [ "${1:-}" = "-e" ]; then
-  exec /usr/local/bin/node "$@"
-fi
-exec "$(dirname "$0")/t3.real" "$@"
-SHIM
-    chmod +x "${bin}"
-  done
-}
+# A shim that made the runtime executable answer `-e` used to live here, so that
+# t3 could verify its Antigravity browser-suppression helper. It cannot work in
+# any form: t3 builds that helper from process.execPath, and on Linux that is
+# always the real executable the kernel mapped, never a wrapper script that
+# exec'd it. Antigravity sign-in therefore stays unsupported in a workspace until
+# t3 offers a runtime that evaluates `-e`, or a way to name the helper itself.
 
 # The launcher supervises t3 -- it restarts it across an update and rolls back a
 # version that will not open the database -- but it exits when t3 dies for any
 # other reason, expecting its own supervisor to bring it back. Under systemd
 # that is Restart=; here it is this loop.
 while true; do
-  wrap_t3_native
-  node "${LAUNCHER}" &
+  "${T3_RUNTIME}/t3" __service-launcher &
   child_pid=$!
   set +e
   wait "${child_pid}"

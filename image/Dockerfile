@@ -24,16 +24,32 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && rm -rf /var/lib/apt/lists/*
 
 # The floor a fresh workspace starts from, and the service launcher every
-# workspace runs under: entrypoint.sh execs this copy's
-# dist/service-launcher.mjs. t3 installs and activates newer runtimes itself,
-# under the tenant's own ${T3CODE_HOME}/runtime, but the launcher supervising
-# them only moves with the image, and a runtime can require a newer one than
-# the image bakes.
+# workspace runs under. t3 installs and activates newer runtimes itself, under
+# the tenant's own ${T3CODE_HOME}/runtime, but the launcher supervising them
+# only moves with the image, and a runtime can require a newer one than the
+# image bakes.
 # renovate: datasource=npm depName=t3
 ARG T3_VERSION=0.0.42
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g "t3@${T3_VERSION}" \
  && npm cache clean --force
+
+# Since 0.0.41 the `t3` npm package is a thin installer and the release payload
+# -- the self-contained executable, the web client and the native packages
+# beside it -- ships as @t3code/t3-<platform>. That payload is what t3 calls a
+# pinned runtime: the launcher lives inside the executable as
+# `t3 __service-launcher`, and it spawns whichever runtime the tenant activated.
+# Give it a stable path here, because the platform package's name varies with
+# the build architecture and vswarm-t3 seeds every workspace from it.
+#
+# The build fails when that executable is absent, so a t3 release that moves the
+# payload again stops here instead of in a tenant's crash loop.
+RUN set -eu; \
+    runtime="$(echo /usr/local/lib/node_modules/t3/node_modules/@t3code/t3-linux-*)"; \
+    test -x "${runtime}/t3"; \
+    mkdir -p /opt; \
+    ln -s "${runtime}" /opt/t3-runtime; \
+    /opt/t3-runtime/t3 --version
 
 RUN curl -fsSL -o /tmp/uv-installer.sh https://astral.sh/uv/0.12.9/install.sh \
  && UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh /tmp/uv-installer.sh \
