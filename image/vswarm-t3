@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BAKED=/usr/local/lib/node_modules/t3
+BAKED=/opt/t3-runtime
 T3_HOME="${T3CODE_HOME:-${HOME}/.config/t3}"
 VERSIONS="${T3_HOME}/runtime/versions"
 STATE="${T3_HOME}/runtime/service-state.json"
@@ -17,9 +17,11 @@ USAGE
   vswarm-t3 cli <args>   run the active t3 CLI
   vswarm-t3 bootstrap    seed the runtime from the image, drop superseded versions
 
-t3 updates itself in place: the app installs the version you pick under
-~/.config/t3/runtime and its service launcher switches to it. The version
-baked into the image is only the floor a fresh workspace starts from.
+A runtime is a t3 release payload -- the self-contained executable and the
+files beside it -- under ~/.config/t3/runtime/versions/<version>. t3 updates
+itself in place: the app installs the version you pick there and its service
+launcher switches to it. The version baked into the image is only the floor a
+fresh workspace starts from.
 USAGE
 }
 
@@ -31,26 +33,33 @@ baked_version() {
   version_of "${BAKED}"
 }
 
+# Where t3 itself looks for a runtime's executable, so this is the one shape a
+# seeded runtime has to match.
 entry_for() {
-  printf '%s/%s/node_modules/t3/dist/bin.mjs' "${VERSIONS}" "$1"
+  printf '%s/%s/t3' "${VERSIONS}" "$1"
 }
 
-# A runtime is only the version it is named after. The baked one is a symlink
-# into the image, so an image whose floor moved leaves a directory whose name,
-# sentinel and contents disagree; comparing all three is what makes that
-# self-healing rather than a launcher that refuses to start.
+# An executable and a sentinel naming the same version is what t3 accepts, and
+# matching it exactly is what keeps a runtime t3 installed for itself from being
+# pruned as unusable. A runtime seeded from the image needs one check more: it
+# is a symlink into the image, so an image whose floor moved leaves a directory
+# whose name and sentinel still say the old version while the payload behind
+# them is the new one.
 installed() {
   local version=$1
   if [ -z "${version}" ]; then
     return 1
   fi
-  if [ ! -r "$(entry_for "${version}")" ]; then
+  if [ ! -x "$(entry_for "${version}")" ]; then
     return 1
   fi
   if [ "$(cat "${VERSIONS}/${version}/.install-complete" 2>/dev/null)" != "${version}" ]; then
     return 1
   fi
-  [ "$(version_of "${VERSIONS}/${version}/node_modules/t3")" = "${version}" ]
+  if [ -L "$(entry_for "${version}")" ]; then
+    [ "$(baked_version)" = "${version}" ] || return 1
+  fi
+  return 0
 }
 
 state_field() {
@@ -90,24 +99,33 @@ write_state() {
 # work volume a migration has to carry. Only the record of which one is active
 # stays durable.
 link_versions() {
+  # Unconditionally, because the cache volume being disposable means the link
+  # can outlive the directory it names: a workspace whose cache was dropped
+  # while its work volume stayed would otherwise meet a dangling link here and
+  # fail to start, rather than rebuilding what was never meant to be durable.
+  mkdir -p "${CACHE_VERSIONS}"
   if [ -L "${VERSIONS}" ] || [ -d "${VERSIONS}" ]; then
     return 0
   fi
-  mkdir -p "${CACHE_VERSIONS}" "$(dirname "${VERSIONS}")"
+  mkdir -p "$(dirname "${VERSIONS}")"
   ln -s "${CACHE_VERSIONS}" "${VERSIONS}"
 }
 
+# Linking each entry of the payload rather than copying it keeps a workspace's
+# first start off the ~150MB the executable alone weighs, and keeps the runtime
+# the image bakes in one place on disk however many tenants share the image.
 seed() {
-  local version=$1 staging
+  local version=$1 staging entry
   if installed "${version}"; then
     return 0
   fi
   mkdir -p "${VERSIONS}"
   rm -rf "${VERSIONS:?}/${version}"
   staging=$(mktemp -d "${VERSIONS}/.staging-XXXXXX")
-  mkdir -p "${staging}/node_modules"
-  ln -s "${BAKED}" "${staging}/node_modules/t3"
-  printf '%s' "${version}" >"${staging}/.install-complete"
+  for entry in "${BAKED}"/*; do
+    ln -s "${entry}" "${staging}/$(basename "${entry}")"
+  done
+  printf '%s\n' "${version}" >"${staging}/.install-complete"
   mv "${staging}" "${VERSIONS}/${version}"
 }
 
@@ -158,9 +176,9 @@ cmd_cli() {
   local active
   active=$(active_version)
   if installed "${active}"; then
-    exec node "$(entry_for "${active}")" "$@"
+    exec "$(entry_for "${active}")" "$@"
   fi
-  exec node "${BAKED}/dist/bin.mjs" "$@"
+  exec "${BAKED}/t3" "$@"
 }
 
 cmd_status() {
@@ -168,7 +186,7 @@ cmd_status() {
   active=$(active_version)
   printf 'active     %s\n' "${active:-none}"
   printf 'image      %s\n' "$(baked_version)"
-  if pgrep -f 'dist/service-launcher.mjs' >/dev/null 2>&1; then
+  if pgrep -f '__service-launcher' >/dev/null 2>&1; then
     printf 'launcher   running\n'
   else
     printf 'launcher   not running\n'
