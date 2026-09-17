@@ -23,12 +23,14 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-# The floor a fresh workspace starts from. t3 installs and activates newer
-# versions itself, under the tenant's own ${T3CODE_HOME}/runtime, so bumping
-# this does not move the fleet -- it only shortens a new workspace's first
-# update.
+# The floor a fresh workspace starts from, and the service launcher every
+# workspace runs under: entrypoint.sh execs this copy's
+# dist/service-launcher.mjs. t3 installs and activates newer runtimes itself,
+# under the tenant's own ${T3CODE_HOME}/runtime, but the launcher supervising
+# them only moves with the image, and a runtime can require a newer one than
+# the image bakes.
 # renovate: datasource=npm depName=t3
-ARG T3_VERSION=0.0.40
+ARG T3_VERSION=0.0.42
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g "t3@${T3_VERSION}" \
  && npm cache clean --force
