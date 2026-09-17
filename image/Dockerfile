@@ -28,28 +28,25 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 # the tenant's own ${T3CODE_HOME}/runtime, but the launcher supervising them
 # only moves with the image, and a runtime can require a newer one than the
 # image bakes.
+#
+# That requirement is a protocol number, and a release refuses to activate under
+# a launcher speaking any other one: 0.0.42 speaks 2, and 0.0.43 onwards wants 3.
+# So this pin is what decides how far a tenant can update itself, and moving it
+# is the only way past a protocol bump -- a launcher cannot install its own
+# replacement. It is a nightly because no 0.0.43 has shipped stable yet.
 # renovate: datasource=npm depName=t3
-ARG T3_VERSION=0.0.42
+ARG T3_VERSION=0.0.43-nightly.20260917.1851
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g "t3@${T3_VERSION}" \
  && npm cache clean --force
 
-# Since 0.0.41 the `t3` npm package is a thin installer and the release payload
-# -- the self-contained executable, the web client and the native packages
-# beside it -- ships as @t3code/t3-<platform>. That payload is what t3 calls a
-# pinned runtime: the launcher lives inside the executable as
-# `t3 __service-launcher`, and it spawns whichever runtime the tenant activated.
-# Give it a stable path here, because the platform package's name varies with
-# the build architecture and vswarm-t3 seeds every workspace from it.
-#
-# The build fails when that executable is absent, so a t3 release that moves the
-# payload again stops here instead of in a tenant's crash loop.
-RUN set -eu; \
-    runtime="$(echo /usr/local/lib/node_modules/t3/node_modules/@t3code/t3-linux-*)"; \
-    test -x "${runtime}/t3"; \
-    mkdir -p /opt; \
-    ln -s "${runtime}" /opt/t3-runtime; \
-    /opt/t3-runtime/t3 --version
+# Resolve the release payload t3 now ships separately, give it a stable path,
+# and record the service protocol its launcher speaks. The build fails when the
+# executable is absent or the protocol is not a single number, so a t3 release
+# that repackages again stops here instead of in a tenant's crash loop; the
+# rationale lives in the script.
+COPY bake-t3-runtime.sh /tmp/bake-t3-runtime.sh
+RUN /tmp/bake-t3-runtime.sh && rm /tmp/bake-t3-runtime.sh
 
 RUN curl -fsSL -o /tmp/uv-installer.sh https://astral.sh/uv/0.12.9/install.sh \
  && UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh /tmp/uv-installer.sh \
