@@ -2,6 +2,7 @@
 set -euo pipefail
 
 BAKED=/opt/t3-runtime
+PROTOCOL=/opt/t3-service-protocol
 T3_HOME="${T3CODE_HOME:-${HOME}/.config/t3}"
 VERSIONS="${T3_HOME}/runtime/versions"
 STATE="${T3_HOME}/runtime/service-state.json"
@@ -13,6 +14,7 @@ vswarm-t3 — the t3 runtime this workspace serves
 
 USAGE
   vswarm-t3 status       the active version, the installed ones, and the launcher
+                         with the protocol it speaks
   vswarm-t3 active       print the active version alone
   vswarm-t3 cli <args>   run the active t3 CLI
   vswarm-t3 bootstrap    seed the runtime from the image, drop superseded versions
@@ -73,7 +75,9 @@ state_field() {
       process.exit(0)
     }
     for (const key of keys) value = value?.[key]
-    if (typeof value === "string") process.stdout.write(value)
+    if (typeof value === "string" || typeof value === "number") {
+      process.stdout.write(String(value))
+    }
   ' "${STATE}" "$@"
 }
 
@@ -90,9 +94,16 @@ named_versions() {
   done
 }
 
+# The protocol the baked executable speaks, recorded by the image build. The
+# launcher reads this file's number back out of service-state.json and refuses
+# to start when it is not its own.
+service_protocol() {
+  cat "${PROTOCOL}" 2>/dev/null
+}
+
 write_state() {
   mkdir -p "$(dirname "${STATE}")"
-  printf '{"protocol":2,"activeVersion":"%s"}\n' "$1" >"${STATE}"
+  printf '{"protocol":%s,"activeVersion":"%s"}\n' "$(service_protocol)" "$1" >"${STATE}"
 }
 
 # Runtimes are rebuildable, so they belong on the cache volume rather than the
@@ -150,8 +161,14 @@ cmd_bootstrap() {
   link_versions
   seed "${baked}"
   active=$(active_version)
+  # An image whose t3 moved across a protocol bump meets a state file written
+  # for the old one, which the launcher rejects outright rather than migrating.
+  # Rewriting it here keeps the version the tenant chose, and costs only an
+  # in-flight update record, which the launcher is about to redo anyway.
   if ! installed "${active}"; then
     active="${baked}"
+    write_state "${active}"
+  elif [ "$(state_field protocol)" != "$(service_protocol)" ]; then
     write_state "${active}"
   fi
   while IFS= read -r version; do
@@ -181,8 +198,35 @@ cmd_cli() {
   exec "${BAKED}/t3" "$@"
 }
 
+# The launcher tells the server it supervises which protocol it speaks, and a
+# release refuses to activate under a launcher speaking any other one -- the
+# failure that reads "This release requires a newer T3 Code service launcher",
+# with nothing on the box to say what the launcher offered or what was wanted.
+# The context the running server carries is the answer, so report it.
+launcher_protocol() {
+  local pid context
+  pid=$(pgrep -f 'runtime/versions/.*/t3 serve' 2>/dev/null | head -1) || true
+  if [ -z "${pid}" ]; then
+    return 0
+  fi
+  context=$(tr '\0' '\n' <"/proc/${pid}/environ" 2>/dev/null |
+    sed -n 's/^T3_SERVICE_LAUNCHER_CONTEXT=//p' | head -1) || true
+  if [ -z "${context}" ]; then
+    return 0
+  fi
+  node -e '
+    let value
+    try {
+      value = JSON.parse(process.argv[1])
+    } catch {
+      process.exit(0)
+    }
+    if (typeof value?.protocol === "number") process.stdout.write(String(value.protocol))
+  ' "${context}" 2>/dev/null
+}
+
 cmd_status() {
-  local active dir name
+  local active dir name protocol
   active=$(active_version)
   printf 'active     %s\n' "${active:-none}"
   printf 'image      %s\n' "$(baked_version)"
@@ -190,6 +234,12 @@ cmd_status() {
     printf 'launcher   running\n'
   else
     printf 'launcher   not running\n'
+  fi
+  protocol=$(launcher_protocol)
+  if [ -n "${protocol}" ] && [ "${protocol}" != "$(service_protocol)" ]; then
+    printf 'protocol   %s (launcher speaks %s)\n' "$(service_protocol)" "${protocol}"
+  else
+    printf 'protocol   %s\n' "$(service_protocol)"
   fi
   for dir in "${VERSIONS}"/*/; do
     if [ ! -d "${dir}" ]; then
