@@ -40,11 +40,39 @@ preview_pid=$!
 # workspace start with no network.
 vswarm-t3 bootstrap
 
+# T3 builds its Antigravity browser-suppression helper as
+# `<process.execPath> -e <js> -- <url>` and fails install validation when the
+# marker it prints does not come back. Native runtimes (t3-linux-*) cannot
+# evaluate `-e`, so wrap each installed one with a shim that runs exactly that
+# shape under node and passes everything else to the real binary. Idempotent.
+# Runs on (re)start: a T3 self-update that lands a fresh native runtime
+# mid-session stays unwrapped until the launcher restarts.
+wrap_t3_native() {
+  local pkg bin
+  for pkg in "${T3CODE_HOME}/runtime/versions/"*/node_modules/@t3code/t3-linux-*/package.json; do
+    [ -r "${pkg}" ] || continue
+    bin="${pkg%/package.json}/t3"
+    [ -f "${bin}" ] || continue
+    [ ! -f "${bin}.real" ] || continue
+    mv "${bin}" "${bin}.real"
+    cat >"${bin}" <<'SHIM'
+#!/bin/sh
+# Applied by vswarm/image/entrypoint.sh; the rationale lives there.
+if [ "${1:-}" = "-e" ]; then
+  exec /usr/local/bin/node "$@"
+fi
+exec "$(dirname "$0")/t3.real" "$@"
+SHIM
+    chmod +x "${bin}"
+  done
+}
+
 # The launcher supervises t3 -- it restarts it across an update and rolls back a
 # version that will not open the database -- but it exits when t3 dies for any
 # other reason, expecting its own supervisor to bring it back. Under systemd
 # that is Restart=; here it is this loop.
 while true; do
+  wrap_t3_native
   node "${LAUNCHER}" &
   child_pid=$!
   set +e
