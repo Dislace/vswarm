@@ -402,12 +402,17 @@ Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 
 ### Reaching a workspace dev server
 
-A dev server in a workspace is reachable at `<port>.<domain>` — `5180.vs.example.com`
-for the server on port 5180. The proxy routes it the way it routes everything
-else, by Access identity, so the hostname carries only the port and an identity
-can only ever reach ports in its *own* workspace. Nothing is published to the
-host and no container port is opened; the proxy already shares a network with
-every tenant.
+A dev server in a workspace is reachable at `vsdev-<port>.<zone>` —
+`vsdev-5180.dislace.com` for the server on port 5180. The proxy routes it the
+way it routes everything else, by Access identity, so the hostname carries only
+the port and an identity can only ever reach ports in its *own* workspace.
+Nothing is published to the host and no container port is opened; the proxy
+already shares a network with every tenant.
+
+The label sits one level under the zone apex on purpose. A `<port>.<domain>`
+scheme is two levels down, and a certificate covering `*.<zone>` does not
+extend that far — it would need advanced certificate management. `vsdev-<port>`
+is covered by the certificate the zone already has.
 
 This matters beyond convenience. t3's preview tools drive whichever browser is
 attached, and with the desktop app that browser is on the operator's machine —
@@ -419,15 +424,28 @@ which the preview tools accept from anywhere.
 
 Two prerequisites live outside this repo, in Cloudflare:
 
-- a DNS record covering `*.<domain>`, routed to the same tunnel as `<domain>`;
-- the Access application extended to that wildcard, so a port hostname is
-  gated by the same identity as the workspace.
+- a wildcard DNS record for `*.<zone>` routed to the same tunnel as the
+  workspace hostname;
+- the Access application extended to cover it, so a port hostname is gated by
+  the same identity as the workspace.
 
-Until both exist, the angie side is inert — nothing resolves `<port>.<domain>`,
-and the workspace hostname keeps working exactly as before. Note that a
-wildcard one level below a subdomain is not covered by Cloudflare's universal
-certificate; either the zone needs advanced certificate management, or the port
-hostnames need to sit one level below the zone apex instead.
+Two consequences of that wildcard are worth stating plainly. Every otherwise
+undefined subdomain of the zone now resolves to this tunnel and lands on the
+workspace server, which answers with t3's login — Access gates it, so a
+stranger gets the identity challenge rather than a workspace, but the name
+resolves where it did not before. Hostnames with their own DNS records are
+unaffected: a specific record beats the wildcard, and a more specific Access
+application beats a broader one.
+
+The second is in the dev server, not the proxy. The proxy passes the real
+`Host` through, so origin-relative assets and the HMR websocket work — but Vite
+rejects a `Host` it does not recognise, as protection against DNS rebinding. A
+workspace dev server reached this way needs its hostname in
+`server.allowedHosts`.
+
+Until the DNS record and the Access application exist, the angie side is inert:
+nothing resolves `vsdev-<port>`, and the workspace hostname keeps working
+exactly as before.
 
 ### Serving t3's preview tools
 

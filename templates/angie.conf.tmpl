@@ -51,14 +51,19 @@ http {
         location = /healthz { return 200 "ok\n"; }
     }
 
-    # Claimed before the catch-all below, so only hostnames that start with a
-    # port label land here. Everything angie needs for a dev server it does not
-    # need for the workspace: no Authorization header (the server behind it is
-    # the tenant's own, not t3), and websockets for whatever HMR the dev server
-    # speaks.
+    # A dev server in a workspace answers at vsdev-<port>.<zone>, claimed before
+    # the catch-all below. The label sits one level under the zone apex so the
+    # certificate that already covers *.<zone> covers it too; a <port>.<domain>
+    # scheme would be a second level down and need a certificate of its own.
+    #
+    # Only the port travels in the hostname. The identity still chooses the
+    # container, so the worst a wrong guess reaches is a port in the guesser's
+    # own workspace. Everything angie needs here it does not need for the
+    # workspace: no Authorization header, because the server behind this is the
+    # tenant's own and not t3.
     server {
         listen {{.ProxyIP}}:{{.ProxyPort}};
-        server_name ~^(?<devport>\d+)\.;
+        server_name ~^vsdev-(?<devport>\d+)\.;
 
         client_max_body_size 0;
         proxy_read_timeout 3600s;

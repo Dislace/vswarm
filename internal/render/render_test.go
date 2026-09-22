@@ -495,7 +495,7 @@ func TestRenderKeepsTheWorkspaceServerTheDefaultOne(t *testing.T) {
 	if !strings.Contains(angieConf, "listen "+ProxyIP+":"+ProxyPort+" default_server;") {
 		t.Error("the workspace server is not the default one; a request without a port label would reach the port server")
 	}
-	if !strings.Contains(angieConf, "server_name ~^(?<devport>\\d+)\\.;") {
+	if !strings.Contains(angieConf, "server_name ~^vsdev-(?<devport>\\d+)\\.;") {
 		t.Error("no port server: a dev server has no hostname")
 	}
 	if strings.Index(angieConf, "$vswarm_container:$devport") > strings.Index(angieConf, "listen "+ProxyIP+":"+ProxyPort+" default_server;") {
