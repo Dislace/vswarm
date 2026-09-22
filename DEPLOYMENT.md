@@ -402,16 +402,16 @@ Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 
 ### Reaching a workspace dev server
 
-A dev server in a workspace is reachable at `vsdev-<port>.<zone>` —
-`vsdev-5180.dislace.com` for the server on port 5180. The proxy routes it the
-way it routes everything else, by Access identity, so the hostname carries only
-the port and an identity can only ever reach ports in its *own* workspace.
-Nothing is published to the host and no container port is opened; the proxy
-already shares a network with every tenant.
+A dev server in a workspace is reachable at `<port>-vs.<zone>` —
+`5180-vs.dislace.com` for the server on port 5180. The proxy routes it the way
+it routes everything else, by Access identity, so the hostname carries only the
+port and an identity can only ever reach ports in its *own* workspace. Nothing
+is published to the host and no container port is opened; the proxy already
+shares a network with every tenant.
 
 The label sits one level under the zone apex on purpose. A `<port>.<domain>`
 scheme is two levels down, and a certificate covering `*.<zone>` does not
-extend that far — it would need advanced certificate management. `vsdev-<port>`
+extend that far — it would need advanced certificate management. `<port>-vs`
 is covered by the certificate the zone already has.
 
 This matters beyond convenience. t3's preview tools drive whichever browser is
@@ -422,30 +422,32 @@ workspace it cannot reach on a private network, naming a preview gateway it has
 not shipped. A public hostname per port sidesteps that: it is an ordinary URL,
 which the preview tools accept from anywhere.
 
-Two prerequisites live outside this repo, in Cloudflare:
+Three prerequisites live outside this repo, in Cloudflare:
 
 - a wildcard DNS record for `*.<zone>` routed to the same tunnel as the
-  workspace hostname;
-- the Access application extended to cover it, so a port hostname is gated by
-  the same identity as the workspace.
+  workspace hostname. It has to be the whole first label: a wildcard is only a
+  wildcard there, and `*-vs.<zone>` would be a literal asterisk.
+- the tunnel's ingress extended to `*.<zone>`, ahead of its catch-all.
+- an Access application scoped to `*-vs.<zone>`, **not** to `*.<zone>`.
 
-Two consequences of that wildcard are worth stating plainly. Every otherwise
-undefined subdomain of the zone now resolves to this tunnel and lands on the
-workspace server, which answers with t3's login — Access gates it, so a
-stranger gets the identity challenge rather than a workspace, but the name
-resolves where it did not before. Hostnames with their own DNS records are
-unaffected: a specific record beats the wildcard, and a more specific Access
-application beats a broader one.
+That last one is the whole reason for the suffix. Access may wildcard within a
+label where DNS may not, so scoping it to `*-vs.<zone>` injects an identity for
+dev hostnames and nothing else. Names the DNS wildcard catches by accident
+reach the proxy with no identity and are refused — where an application on
+`*.<zone>` would instead put a login page in front of every hostname in the
+zone that does not already have one of its own. Hostnames with their own DNS
+records are unaffected either way: a specific record beats the wildcard, and a
+more specific Access application beats a broader one.
 
-The second is in the dev server, not the proxy. The proxy passes the real
-`Host` through, so origin-relative assets and the HMR websocket work — but Vite
-rejects a `Host` it does not recognise, as protection against DNS rebinding. A
-workspace dev server reached this way needs its hostname in
+One consequence lives in the dev server rather than the proxy. The proxy passes
+the real `Host` through, so origin-relative assets and the HMR websocket work —
+but Vite rejects a `Host` it does not recognise, as protection against DNS
+rebinding. A workspace dev server reached this way needs its hostname in
 `server.allowedHosts`.
 
 Until the DNS record and the Access application exist, the angie side is inert:
-nothing resolves `vsdev-<port>`, and the workspace hostname keeps working
-exactly as before.
+nothing resolves `<port>-vs`, and the workspace hostname keeps working exactly
+as before.
 
 ### Serving t3's preview tools
 

@@ -63,7 +63,7 @@ http {
     # tenant's own and not t3.
     server {
         listen {{.ProxyIP}}:{{.ProxyPort}};
-        server_name ~^vsdev-(?<devport>\d+)\.;
+        server_name ~^(?<devport>\d+)-vs\.;
 
         client_max_body_size 0;
         proxy_read_timeout 3600s;
