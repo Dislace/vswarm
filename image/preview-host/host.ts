@@ -71,18 +71,21 @@ const webSocketConstructor = (config: Config) =>
     }) as unknown as globalThis.WebSocket,
   )
 
-const session = (config: Config) =>
-    Effect.gen(function* () {
-      yield* Effect.logInfo("launching the browser baked into the image")
-      const browser = yield* Effect.acquireRelease(
-        Effect.promise(() =>
-          chromium.launch({
-            args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-          }),
-        ),
-        (open) => Effect.promise(() => open.close()),
-      )
-    const tabs = new TabRegistry(browser)
+const browser = Effect.gen(function* () {
+  yield* Effect.logInfo("launching the browser baked into the image")
+  const open = yield* Effect.acquireRelease(
+    Effect.promise(() =>
+      chromium.launch({
+        args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+      }),
+    ),
+    (running) => Effect.promise(() => running.close()),
+  )
+  return new TabRegistry(open)
+})
+
+const session = (config: Config, tabs: TabRegistry) =>
+  Effect.gen(function* () {
     yield* Effect.logInfo(`browser ready; opening ${socketUrl(config)}`)
 
     const client = yield* RpcClient.make(PreviewAutomation)
@@ -163,17 +166,25 @@ const backoff = Schedule.exponential("1 second").pipe(
 // so an attempt that starts before delivery fails and the next one picks it
 // up, and a rotation is picked up on the next reconnect. Nothing here has to
 // know which of the two happened.
-const attempt = Effect.gen(function* () {
-  const config = yield* Effect.tryPromise(load)
-  return yield* session(config).pipe(
-    Effect.provide(protocolLayer(config)),
-    Effect.scoped,
-  )
-})
+const attempt = (tabs: TabRegistry) =>
+  Effect.gen(function* () {
+    const config = yield* Effect.tryPromise(load)
+    return yield* session(config, tabs).pipe(
+      Effect.provide(protocolLayer(config)),
+      Effect.scoped,
+    )
+  })
 
-const main = attempt.pipe(
-  Effect.tapError((cause) => Effect.logError(`preview host not serving: ${cause}`)),
-  Effect.retry(backoff),
-)
+// The browser is acquired once, outside the retry, because every t3 restart
+// closes the WebSocket and each reconnect used to launch a browser of its own.
+// Holding one across reconnects also keeps the tab registry a reconnecting
+// agent comes back to.
+const main = Effect.gen(function* () {
+  const tabs = yield* browser
+  yield* attempt(tabs).pipe(
+    Effect.tapError((cause) => Effect.logError(`preview host not serving: ${cause}`)),
+    Effect.retry(backoff),
+  )
+}).pipe(Effect.scoped)
 
 NodeRuntime.runMain(main)

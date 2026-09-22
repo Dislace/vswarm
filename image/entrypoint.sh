@@ -31,7 +31,23 @@ trap forward TERM INT
 # ~/.preview-host.env the way ~/.pg.env is delivered. Starting it unconditionally
 # is what lets `vswarm pair` deliver that file after the container is healthy:
 # the host retries until the credential appears, and idles cheaply until then.
-node "${PREVIEW_HOST}" &
+#
+# It is supervised the way t3 is, and for the same reason: a one-shot child that
+# exits leaves the workspace with no browser until the container is recreated,
+# and agents answer that by installing a browser of their own.
+supervise_preview() {
+  local running=""
+  trap 'kill -TERM "${running}" 2>/dev/null || true; exit 0' TERM
+  while true; do
+    node "${PREVIEW_HOST}" &
+    running=$!
+    wait "${running}" || true
+    running=""
+    sleep 2
+  done
+}
+
+supervise_preview &
 preview_pid=$!
 
 # t3 serves from a runtime it owns under ${T3CODE_HOME}/runtime, so that the
