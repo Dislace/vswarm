@@ -27,6 +27,16 @@ http {
         include /etc/angie/tenants/*.token;
     }
 
+    # A dev server in a workspace is reachable at <port>.<domain>. The identity
+    # still chooses the container -- this map only carries the port -- so the
+    # worst a wrong guess can do is miss a port in the requester's own
+    # workspace. The upstream map above names an upstream block, which cannot
+    # carry a port, so ports need the container's address instead.
+    map $http_cf_access_authenticated_user_email $vswarm_container {
+        default "";
+        include /etc/angie/tenants/*.host;
+    }
+
     map $http_upgrade $vswarm_connection {
         default upgrade;
         ''      "";
@@ -41,8 +51,58 @@ http {
         location = /healthz { return 200 "ok\n"; }
     }
 
+    # A dev server in a workspace answers at vsdev-<port>.<zone>, claimed before
+    # the catch-all below. The label sits one level under the zone apex so the
+    # certificate that already covers *.<zone> covers it too; a <port>.<domain>
+    # scheme would be a second level down and need a certificate of its own.
+    #
+    # Only the port travels in the hostname. The identity still chooses the
+    # container, so the worst a wrong guess reaches is a port in the guesser's
+    # own workspace. Everything angie needs here it does not need for the
+    # workspace: no Authorization header, because the server behind this is the
+    # tenant's own and not t3.
     server {
         listen {{.ProxyIP}}:{{.ProxyPort}};
+        server_name ~^(?<devport>\d+)-vs\.;
+
+        client_max_body_size 0;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        tcp_nodelay on;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_socket_keepalive on;
+
+        location / {
+            if ($request_method = OPTIONS) {
+                add_header Access-Control-Allow-Origin      "$http_origin" always;
+                add_header Access-Control-Allow-Methods     "$http_access_control_request_method" always;
+                add_header Access-Control-Allow-Headers     "$http_access_control_request_headers" always;
+                add_header Access-Control-Max-Age           600 always;
+                add_header Content-Length                   0 always;
+                return 204;
+            }
+
+            if ($vswarm_container = "") {
+                return 403 "vibeswarm: no workspace mapped for this identity\n";
+            }
+
+            proxy_pass http://$vswarm_container:$devport$request_uri;
+            proxy_http_version 1.1;
+            proxy_set_header Host               $host;
+            proxy_set_header Upgrade            $http_upgrade;
+            proxy_set_header Connection         $vswarm_connection;
+            proxy_set_header X-Forwarded-For    $remote_addr;
+            proxy_set_header X-Forwarded-Proto  https;
+        }
+    }
+
+    # default_server, explicitly: `_` is a name that matches nothing, so the
+    # workspace block is only the fallback by being the default one, and adding
+    # a second server on this address would otherwise silently steal it.
+    server {
+        listen {{.ProxyIP}}:{{.ProxyPort}} default_server;
         server_name _;
 
         client_max_body_size 0;

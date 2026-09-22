@@ -400,6 +400,55 @@ in the workspace instead.
 Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 `dropdb && createdb && bun run migration:run`.
 
+### Reaching a workspace dev server
+
+A dev server in a workspace is reachable at `<port>-vs.<zone>` —
+`5180-vs.dislace.com` for the server on port 5180. The proxy routes it the way
+it routes everything else, by Access identity, so the hostname carries only the
+port and an identity can only ever reach ports in its *own* workspace. Nothing
+is published to the host and no container port is opened; the proxy already
+shares a network with every tenant.
+
+The label sits one level under the zone apex on purpose. A `<port>.<domain>`
+scheme is two levels down, and a certificate covering `*.<zone>` does not
+extend that far — it would need advanced certificate management. `<port>-vs`
+is covered by the certificate the zone already has.
+
+This matters beyond convenience. t3's preview tools drive whichever browser is
+attached, and with the desktop app that browser is on the operator's machine —
+so `localhost:5173` in a preview means *their* laptop, and a workspace dev
+server is invisible to it. t3 refuses its own `environment-port` target for a
+workspace it cannot reach on a private network, naming a preview gateway it has
+not shipped. A public hostname per port sidesteps that: it is an ordinary URL,
+which the preview tools accept from anywhere.
+
+Three prerequisites live outside this repo, in Cloudflare:
+
+- a wildcard DNS record for `*.<zone>` routed to the same tunnel as the
+  workspace hostname. It has to be the whole first label: a wildcard is only a
+  wildcard there, and `*-vs.<zone>` would be a literal asterisk.
+- the tunnel's ingress extended to `*.<zone>`, ahead of its catch-all.
+- an Access application scoped to `*-vs.<zone>`, **not** to `*.<zone>`.
+
+That last one is the whole reason for the suffix. Access may wildcard within a
+label where DNS may not, so scoping it to `*-vs.<zone>` injects an identity for
+dev hostnames and nothing else. Names the DNS wildcard catches by accident
+reach the proxy with no identity and are refused — where an application on
+`*.<zone>` would instead put a login page in front of every hostname in the
+zone that does not already have one of its own. Hostnames with their own DNS
+records are unaffected either way: a specific record beats the wildcard, and a
+more specific Access application beats a broader one.
+
+One consequence lives in the dev server rather than the proxy. The proxy passes
+the real `Host` through, so origin-relative assets and the HMR websocket work —
+but Vite rejects a `Host` it does not recognise, as protection against DNS
+rebinding. A workspace dev server reached this way needs its hostname in
+`server.allowedHosts`.
+
+Until the DNS record and the Access application exist, the angie side is inert:
+nothing resolves `<port>-vs`, and the workspace hostname keeps working exactly
+as before.
+
 ### Serving t3's preview tools
 
 Agents get 14 `preview_*` tools (navigate, click, snapshot, resize, …) whether or
