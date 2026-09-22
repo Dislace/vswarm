@@ -400,6 +400,35 @@ in the workspace instead.
 Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 `dropdb && createdb && bun run migration:run`.
 
+### Reaching a workspace dev server
+
+A dev server in a workspace is reachable at `<port>.<domain>` — `5180.vs.example.com`
+for the server on port 5180. The proxy routes it the way it routes everything
+else, by Access identity, so the hostname carries only the port and an identity
+can only ever reach ports in its *own* workspace. Nothing is published to the
+host and no container port is opened; the proxy already shares a network with
+every tenant.
+
+This matters beyond convenience. t3's preview tools drive whichever browser is
+attached, and with the desktop app that browser is on the operator's machine —
+so `localhost:5173` in a preview means *their* laptop, and a workspace dev
+server is invisible to it. t3 refuses its own `environment-port` target for a
+workspace it cannot reach on a private network, naming a preview gateway it has
+not shipped. A public hostname per port sidesteps that: it is an ordinary URL,
+which the preview tools accept from anywhere.
+
+Two prerequisites live outside this repo, in Cloudflare:
+
+- a DNS record covering `*.<domain>`, routed to the same tunnel as `<domain>`;
+- the Access application extended to that wildcard, so a port hostname is
+  gated by the same identity as the workspace.
+
+Until both exist, the angie side is inert — nothing resolves `<port>.<domain>`,
+and the workspace hostname keeps working exactly as before. Note that a
+wildcard one level below a subdomain is not covered by Cloudflare's universal
+certificate; either the zone needs advanced certificate management, or the port
+hostnames need to sit one level below the zone apex instead.
+
 ### Serving t3's preview tools
 
 Agents get 14 `preview_*` tools (navigate, click, snapshot, resize, …) whether or

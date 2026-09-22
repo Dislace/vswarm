@@ -207,7 +207,7 @@ func Render(c *config.Config) error {
 	// angie treats an include glob that matches nothing as a fatal boot
 	// error, so the map blocks always get one no-op placeholder entry.
 	want := map[string]bool{"_default": true}
-	for _, ext := range []string{".upstream", ".token"} {
+	for _, ext := range []string{".upstream", ".token", ".host"} {
 		p := filepath.Join(GeneratedDir, "angie", "tenants", "_default"+ext)
 		if err := os.WriteFile(p, []byte("\"\" \"\";\n"), 0o644); err != nil {
 			return err
@@ -220,6 +220,13 @@ func Render(c *config.Config) error {
 		if err := os.WriteFile(p, []byte(line), 0o644); err != nil {
 			return err
 		}
+		// The upstream above names an upstream block; a dev server needs an
+		// address a port can be appended to.
+		host := fmt.Sprintf("%q %q;\n", t.Email, t.Container)
+		p = filepath.Join(GeneratedDir, "angie", "tenants", t.Name+".host")
+		if err := os.WriteFile(p, []byte(host), 0o644); err != nil {
+			return err
+		}
 	}
 	matches, _ := filepath.Glob(filepath.Join(GeneratedDir, "angie", "tenants", "*.upstream"))
 	for _, m := range matches {
@@ -227,6 +234,7 @@ func Render(c *config.Config) error {
 		if !want[name] {
 			os.Remove(m)
 			os.Remove(filepath.Join(GeneratedDir, "angie", "tenants", name+".token"))
+			os.Remove(filepath.Join(GeneratedDir, "angie", "tenants", name+".host"))
 		}
 	}
 	return nil

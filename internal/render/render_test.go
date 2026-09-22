@@ -60,6 +60,11 @@ func TestRenderProducesIsolatedTenantConfiguration(t *testing.T) {
 		filepath.Join(GeneratedDir, "angie", "tenants", "bob.upstream"),
 		"\"bob@example.com\" \"vswarm_bob\";\n",
 	)
+	assertFileEquals(
+		t,
+		filepath.Join(GeneratedDir, "angie", "tenants", "alice.host"),
+		"\"alice@example.com\" \"vswarm-alice\";\n",
+	)
 
 	angie, err := os.ReadFile(filepath.Join(GeneratedDir, "angie", "angie.conf"))
 	if err != nil {
@@ -109,6 +114,7 @@ func TestRenderRemovesDepartedTenantRoutingAndToken(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(GeneratedDir, "angie", "tenants", "alice.upstream"),
+		filepath.Join(GeneratedDir, "angie", "tenants", "alice.host"),
 		token,
 	} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -127,7 +133,7 @@ func TestRenderWritesPlaceholderTenantFilesSoIncludeGlobsNeverMatchNothing(t *te
 	if err := Render(c); err != nil {
 		t.Fatal(err)
 	}
-	for _, ext := range []string{".upstream", ".token"} {
+	for _, ext := range []string{".upstream", ".token", ".host"} {
 		p := filepath.Join(GeneratedDir, "angie", "tenants", "_default"+ext)
 		got := readFile(t, p)
 		if got != "\"\" \"\";\n" {
@@ -467,5 +473,32 @@ func TestAngieAnswersPreflightBeforeTheIdentityGate(t *testing.T) {
 		if !strings.Contains(conf, want) {
 			t.Errorf("preflight answer missing %q", want)
 		}
+	}
+}
+
+// The port server sits before the workspace server, and `_` matches no real
+// hostname, so the workspace only stays the fallback while it is explicitly
+// the default one. Without this a normal workspace request lands in the port
+// server with no port and fails.
+func TestRenderKeepsTheWorkspaceServerTheDefaultOne(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain:    "code.example.com",
+		Image:     "vswarm/workspace:test",
+		Resources: config.Resources{CPUs: "1", Memory: "1g", Pids: 128},
+		Tenants:   []config.Tenant{{Email: "alice@example.com", Name: "alice"}},
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	angieConf := readFile(t, filepath.Join(GeneratedDir, "angie", "angie.conf"))
+	if !strings.Contains(angieConf, "listen "+ProxyIP+":"+ProxyPort+" default_server;") {
+		t.Error("the workspace server is not the default one; a request without a port label would reach the port server")
+	}
+	if !strings.Contains(angieConf, "server_name ~^(?<devport>\\d+)\\.;") {
+		t.Error("no port server: a dev server has no hostname")
+	}
+	if strings.Index(angieConf, "$vswarm_container:$devport") > strings.Index(angieConf, "listen "+ProxyIP+":"+ProxyPort+" default_server;") {
+		t.Error("the port server must be declared before the default one to be matched first")
 	}
 }
