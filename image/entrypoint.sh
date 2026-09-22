@@ -10,6 +10,15 @@ mkdir -p "${T3CODE_HOME}" \
   /home/ai-agent/.cache/go/build \
   /home/ai-agent/.cache/pip
 
+# vswarm-dev keeps its registry of long-running servers here. /run is a tmpfs
+# the compose template declares, so the registry cannot outlive the container,
+# and root owns it, so this is the one moment that can hand it to the agent.
+# Losing it costs vswarm-dev and nothing else, so it is not worth a workspace
+# that will not start.
+if ! sudo install -d -o ai-agent -g ai-agent -m 0755 /run/vswarm; then
+  echo "entrypoint: /run/vswarm unavailable; vswarm-dev will refuse to run" >&2
+fi
+
 T3_RUNTIME=/opt/t3-runtime
 PREVIEW_HOST=/opt/preview-host/host.ts
 child_pid=""

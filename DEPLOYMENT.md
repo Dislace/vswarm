@@ -294,6 +294,30 @@ The one pin that matters to a deployment is t3's, in `image/Dockerfile`
 without it. That pin is only the floor a fresh workspace starts from — see
 [Updating t3](#updating-t3).
 
+### Long-running dev servers
+
+Agents start dev servers and forget them, and a workspace that has been up for
+days accumulates one per abandoned thread until the port is gone and the memory
+with it. The image ships `vswarm-dev` for that:
+
+```bash
+vswarm-dev start bun run dev   # replace whatever is on PORT (default 5173)
+vswarm-dev status              # what is on PORT, and where its log is
+vswarm-dev list                # every port with something on it
+vswarm-dev stop                # stop it, and everything it spawned
+```
+
+`start` is the load-bearing one: it stops the server it finds on that port
+before starting another, so an agent that forgets to stop replaces rather than
+stacks. The child gets its own process group, which is what makes `stop` take
+the whole tree — the part a bare `kill` misses on `bun` and `vite`. A command
+that loses the port exits at once and is reported as failed with its log,
+rather than registered as running.
+
+The registry lives in `/run/vswarm/dev`, on the tmpfs the compose template
+declares, so it cannot describe a server that died with the container. The
+entrypoint creates that directory because `/run` belongs to root.
+
 ## Updating t3
 
 **t3 updates itself, per workspace, and the operator is not in the loop.** Its

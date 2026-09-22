@@ -86,7 +86,9 @@ COPY preview-host/*.ts /opt/preview-host/
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY vswarm-repos /usr/local/bin/vswarm-repos
 COPY vswarm-t3 /usr/local/bin/vswarm-t3
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/vswarm-repos /usr/local/bin/vswarm-t3
+COPY vswarm-dev /usr/local/bin/vswarm-dev
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/vswarm-repos \
+      /usr/local/bin/vswarm-t3 /usr/local/bin/vswarm-dev
 
 COPY prompt.sh /tmp/prompt.sh
 RUN cat /tmp/prompt.sh >> /etc/bash.bashrc && rm /tmp/prompt.sh

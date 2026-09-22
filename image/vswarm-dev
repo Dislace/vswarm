@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# One long-running server per port, with a handle the next agent can find.
+# `start` replaces the listener it finds instead of stacking another, the child
+# gets its own process group so stopping it takes the whole tree, and the
+# registry lives on the /run tmpfs so nothing here outlives the container.
+set -euo pipefail
+
+state=/run/vswarm/dev
+port="${PORT:-5173}"
+pgid_file="${state}/${port}.pgid"
+log_file="${state}/${port}.log"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: vswarm-dev start <command>...   replace the server on PORT (default 5173)
+       vswarm-dev stop                 stop it, and everything it spawned
+       vswarm-dev status               what is on PORT, and where its log is
+       vswarm-dev list                 every port with something on it
+
+PORT selects the port and is exported to the command.
+USAGE
+  exit 2
+}
+
+pgid_of() {
+  local file="$1" pgid
+  [[ -s "${file}" ]] || return 1
+  pgid="$(<"${file}")"
+  ps -o pid= -g "${pgid}" >/dev/null 2>&1 || return 1
+  printf '%s' "${pgid}"
+}
+
+stop() {
+  local pgid
+  if pgid="$(pgid_of "${pgid_file}")"; then
+    kill -TERM -"${pgid}" 2>/dev/null || true
+    for _ in $(seq 40); do
+      ps -o pid= -g "${pgid}" >/dev/null 2>&1 || break
+      sleep 0.1
+    done
+    if ps -o pid= -g "${pgid}" >/dev/null 2>&1; then
+      kill -KILL -"${pgid}" 2>/dev/null || true
+    fi
+  fi
+  rm -f "${pgid_file}"
+}
+
+start() {
+  local pid
+  [[ $# -gt 0 ]] || usage
+  stop
+  : >"${log_file}"
+  PORT="${port}" setsid "$@" >>"${log_file}" 2>&1 </dev/null &
+  pid=$!
+  printf '%s' "${pid}" >"${pgid_file}"
+  # A server that loses the port exits at once and leaves whatever it spawned
+  # behind, so reporting the pid without looking would register a corpse.
+  sleep 1
+  if ! kill -0 "${pid}" 2>/dev/null; then
+    stop
+    printf 'vswarm-dev: the command exited at once and did not take port %s:\n' "${port}" >&2
+    tail -n 20 "${log_file}" >&2
+    return 1
+  fi
+  printf 'port %s: pgid %s, log %s\n' "${port}" "${pid}" "${log_file}"
+}
+
+status() {
+  local pgid
+  if ! pgid="$(pgid_of "${pgid_file}")"; then
+    printf 'nothing on port %s\n' "${port}"
+    return 1
+  fi
+  ps -o pid=,etime=,args= -g "${pgid}"
+  printf 'log: %s\n' "${log_file}"
+}
+
+list() {
+  local file entry pgid found=0
+  shopt -s nullglob
+  for file in "${state}"/*.pgid; do
+    entry="${file##*/}"
+    entry="${entry%.pgid}"
+    if pgid="$(pgid_of "${file}")"; then
+      found=1
+      printf '%s\t%s\n' "${entry}" "$(ps -o args= -g "${pgid}" | head -1)"
+    else
+      rm -f "${file}"
+    fi
+  done
+  [[ "${found}" -eq 1 ]] || echo "no dev servers running"
+}
+
+mkdir -p "${state}" 2>/dev/null || {
+  echo "vswarm-dev: ${state} is missing; this workspace predates it, recreate the container" >&2
+  exit 1
+}
+
+command="${1:-status}"
+shift || true
+case "${command}" in
+  start) start "$@" ;;
+  stop) stop ;;
+  status) status ;;
+  list) list ;;
+  *) usage ;;
+esac
