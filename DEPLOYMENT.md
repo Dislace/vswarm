@@ -539,6 +539,15 @@ The host advertises 12 of the 14 operations — everything except
 around what is not advertised, so the remaining two simply stay unavailable
 rather than failing at call time.
 
+
+**One URL in either browser.** With the desktop app attached, t3 drives the
+operator's own browser, which reaches a workspace dev server at
+`https://<port>-<label>.<zone>` through Access and the proxy. Without it, t3
+drives this host's browser, inside the workspace, which has no Access session
+and no route to the proxy — so the host serves that same hostname from
+`127.0.0.1:<port>` directly, websockets included. An agent opens one URL and it
+works in whichever browser the preview turns out to be.
+
 ### Admin host SSH access (optional, per tenant)
 
 Mark a tenant with `admin: true` in `tenants.yaml` to grant it SSH access to the
