@@ -51,19 +51,20 @@ http {
         location = /healthz { return 200 "ok\n"; }
     }
 
-    # A dev server in a workspace answers at vsdev-<port>.<zone>, claimed before
-    # the catch-all below. The label sits one level under the zone apex so the
-    # certificate that already covers *.<zone> covers it too; a <port>.<domain>
-    # scheme would be a second level down and need a certificate of its own.
+    # A dev server in a workspace answers at <port>-<label>.<zone> -- the domain
+    # with a port prefixed to its first label, 5180-vs.example.com for
+    # vs.example.com. That keeps it one level under the zone apex, where the
+    # certificate that already covers *.<zone> reaches, and lets Access be scoped
+    # to *-<label>.<zone> alone: a DNS wildcard must be a whole label, an Access
+    # application may wildcard within one.
     #
     # Only the port travels in the hostname. The identity still chooses the
     # container, so the worst a wrong guess reaches is a port in the guesser's
-    # own workspace. Everything angie needs here it does not need for the
-    # workspace: no Authorization header, because the server behind this is the
-    # tenant's own and not t3.
+    # own workspace. No Authorization header: the server behind this is the
+    # tenant's own, not t3.
     server {
         listen {{.ProxyIP}}:{{.ProxyPort}};
-        server_name ~^(?<devport>\d+)-vs\.;
+        server_name ~{{.DevHostPattern}};
 
         client_max_body_size 0;
         proxy_read_timeout 3600s;
@@ -98,12 +99,20 @@ http {
         }
     }
 
-    # default_server, explicitly: `_` is a name that matches nothing, so the
-    # workspace block is only the fallback by being the default one, and adding
-    # a second server on this address would otherwise silently steal it.
+    # Every hostname the tunnel delivers that nobody declared. The identity
+    # header the maps above read is only trustworthy on a hostname Access
+    # protects, and a wildcard DNS record delivers names it does not -- where a
+    # client can send that header itself. So these are refused before any map is
+    # consulted, rather than falling through to a workspace.
     server {
         listen {{.ProxyIP}}:{{.ProxyPort}} default_server;
         server_name _;
+        return 404;
+    }
+
+    server {
+        listen {{.ProxyIP}}:{{.ProxyPort}};
+        server_name {{.Domain}};
 
         client_max_body_size 0;
         proxy_read_timeout 3600s;

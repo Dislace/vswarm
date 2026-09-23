@@ -119,7 +119,7 @@ func doctorChecks(c *config.Config) []checkResult {
 	_, aerr := dockerx.Exec(proxyContainer, "angie", "-t")
 	check("angie -t config valid", aerr == nil, errStr(aerr))
 
-	answered, detail := proxyAnswersPreflight()
+	answered, detail := proxyAnswersPreflight(c.Domain)
 	check("proxy answers CORS preflight without identity", answered, detail)
 
 	results = append(results, edgeForwardsPreflight(c.Domain))
@@ -254,10 +254,12 @@ func doctorChecks(c *config.Config) []checkResult {
 
 // proxyAnswersPreflight asks the proxy the question a browser engine asks before
 // every cross-origin request that carries an Authorization header. It has to be
-// answered without an identity, because a preflight carries none.
-func proxyAnswersPreflight() (bool, string) {
+// answered without an identity, because a preflight carries none. It asks as the
+// workspace hostname, because the proxy refuses every name it does not serve.
+func proxyAnswersPreflight(domain string) (bool, string) {
 	out, err := dockerx.Exec(proxyContainer, "curl", "-sS", "-m", "5", "-o", "/dev/null",
 		"-w", "%{http_code}", "-X", "OPTIONS",
+		"-H", "Host: "+domain,
 		"-H", "Origin: https://preflight.invalid",
 		"-H", "Access-Control-Request-Method: GET",
 		"-H", "Access-Control-Request-Headers: authorization",

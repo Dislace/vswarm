@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -75,6 +76,7 @@ type tenantView struct {
 
 type view struct {
 	Domain          string
+	DevHostPattern  string
 	Image           string
 	DBImage         string
 	DBMemory        string
@@ -108,6 +110,7 @@ func buildView(c *config.Config) view {
 	}
 	v := view{
 		Domain:          c.Domain,
+		DevHostPattern:  devHostPattern(c.Domain),
 		Image:           c.Image,
 		DBImage:         c.DBImage,
 		DBMemory:        DBMemory,
@@ -316,4 +319,12 @@ func renderTemplate(name, dst string, v view, mode os.FileMode) error {
 		return err
 	}
 	return os.Chmod(dst, mode)
+}
+
+// devHostPattern is the only shape of hostname a workspace dev server answers
+// at: the domain with a port prefixed to its first label, so vs.example.com
+// serves port 5180 as 5180-vs.example.com, one level under the zone apex.
+func devHostPattern(domain string) string {
+	label, rest, _ := strings.Cut(domain, ".")
+	return `^(?<devport>\d+)-` + regexp.QuoteMeta(label) + `\.` + regexp.QuoteMeta(rest) + `$`
 }

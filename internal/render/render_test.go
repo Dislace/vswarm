@@ -476,14 +476,14 @@ func TestAngieAnswersPreflightBeforeTheIdentityGate(t *testing.T) {
 	}
 }
 
-// The port server sits before the workspace server, and `_` matches no real
-// hostname, so the workspace only stays the fallback while it is explicitly
-// the default one. Without this a normal workspace request lands in the port
-// server with no port and fails.
-func TestRenderKeepsTheWorkspaceServerTheDefaultOne(t *testing.T) {
+// The identity header is only trustworthy on a hostname Access protects. A
+// wildcard DNS record delivers names it does not, where a client can forge that
+// header, so the proxy must answer the workspace and dev hostnames by name and
+// refuse everything else before an identity map is consulted.
+func TestRenderAnswersOnlyTheHostnamesAccessProtects(t *testing.T) {
 	chdirTemp(t)
 	c := &config.Config{
-		Domain:    "code.example.com",
+		Domain:    "vs.example.com",
 		Image:     "vswarm/workspace:test",
 		Resources: config.Resources{CPUs: "1", Memory: "1g", Pids: 128},
 		Tenants:   []config.Tenant{{Email: "alice@example.com", Name: "alice"}},
@@ -491,14 +491,21 @@ func TestRenderKeepsTheWorkspaceServerTheDefaultOne(t *testing.T) {
 	if err := Render(c); err != nil {
 		t.Fatal(err)
 	}
-	angieConf := readFile(t, filepath.Join(GeneratedDir, "angie", "angie.conf"))
-	if !strings.Contains(angieConf, "listen "+ProxyIP+":"+ProxyPort+" default_server;") {
-		t.Error("the workspace server is not the default one; a request without a port label would reach the port server")
+	conf := readFile(t, filepath.Join(GeneratedDir, "angie", "angie.conf"))
+
+	fallback := "listen " + ProxyIP + ":" + ProxyPort + " default_server;"
+	at := strings.Index(conf, fallback)
+	if at < 0 {
+		t.Fatal("no default server: an undeclared hostname would reach whichever server is declared first")
 	}
-	if !strings.Contains(angieConf, "server_name ~^(?<devport>\\d+)-vs\\.;") {
-		t.Error("no port server: a dev server has no hostname")
+	block := conf[at : at+strings.Index(conf[at:], "}")]
+	if !strings.Contains(block, "return 404;") || strings.Contains(block, "proxy_pass") {
+		t.Errorf("the default server must refuse, not proxy:\n%s", block)
 	}
-	if strings.Index(angieConf, "$vswarm_container:$devport") > strings.Index(angieConf, "listen "+ProxyIP+":"+ProxyPort+" default_server;") {
-		t.Error("the port server must be declared before the default one to be matched first")
+	if !strings.Contains(conf, "server_name vs.example.com;") {
+		t.Error("the workspace is not answered by its own name")
+	}
+	if !strings.Contains(conf, `server_name ~^(?<devport>\d+)-vs\.example\.com$;`) {
+		t.Error("dev hostnames are not anchored to <port>-<label>.<zone>")
 	}
 }
