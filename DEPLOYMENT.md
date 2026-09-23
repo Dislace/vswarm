@@ -402,8 +402,9 @@ Apps run natively in the workspace (`bun run start:dev`) against it; reset with
 
 ### Reaching a workspace dev server
 
-A dev server in a workspace is reachable at `<port>-vs.<zone>` —
-`5180-vs.dislace.com` for the server on port 5180. The proxy routes it the way
+A dev server in a workspace is reachable at `<port>-<label>.<zone>` — the
+workspace domain with a port prefixed to its first label, so `5180-vs.dislace.com`
+for the server on port 5180 behind `vs.dislace.com`. The proxy routes it the way
 it routes everything else, by Access identity, so the hostname carries only the
 port and an identity can only ever reach ports in its *own* workspace. Nothing
 is published to the host and no container port is opened; the proxy already
@@ -432,12 +433,18 @@ Three prerequisites live outside this repo, in Cloudflare:
 
 That last one is the whole reason for the suffix. Access may wildcard within a
 label where DNS may not, so scoping it to `*-vs.<zone>` injects an identity for
-dev hostnames and nothing else. Names the DNS wildcard catches by accident
-reach the proxy with no identity and are refused — where an application on
-`*.<zone>` would instead put a login page in front of every hostname in the
-zone that does not already have one of its own. Hostnames with their own DNS
-records are unaffected either way: a specific record beats the wildcard, and a
-more specific Access application beats a broader one.
+dev hostnames and nothing else. An application on `*.<zone>` would instead put a
+login page in front of every hostname in the zone that does not already have
+one of its own.
+
+The proxy does not rely on Access alone for this. It routes on the identity
+header Access sets, and that header is only trustworthy on a hostname Access
+protects — on any other name the wildcard delivers, a client can send it
+itself. So the proxy answers exactly two shapes of name, the workspace domain
+and `<port>-<label>.<zone>` anchored to it, and refuses every other hostname
+with a 404 before an identity is consulted. Hostnames with their own DNS
+records are unaffected by the wildcard either way: a specific record beats it,
+and a more specific Access application beats a broader one.
 
 One consequence lives in the dev server rather than the proxy. The proxy passes
 the real `Host` through, so origin-relative assets and the HMR websocket work —
