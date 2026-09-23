@@ -509,3 +509,63 @@ func TestRenderAnswersOnlyTheHostnamesAccessProtects(t *testing.T) {
 		t.Error("dev hostnames are not anchored to <port>-<label>.<zone>")
 	}
 }
+
+// With the Access application named, identity must come only from the verified
+// JWT: any routing decision left on the identity header would be forgeable by a
+// client that reaches the proxy some other way. Without it, routing keeps the
+// header, and nothing loads a module the image may not have.
+func TestRenderTakesIdentityFromTheVerifiedJWTWhenAccessIsNamed(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain:    "vs.example.com",
+		Image:     "vswarm/workspace:test",
+		Resources: config.Resources{CPUs: "1", Memory: "1g", Pids: 128},
+		Access:    config.Access{TeamDomain: "team.cloudflareaccess.com", AUD: "aud-tag"},
+		Tenants:   []config.Tenant{{Email: "alice@example.com", Name: "alice"}},
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	conf := readFile(t, filepath.Join(GeneratedDir, "angie", "angie.conf"))
+	for _, want := range []string{
+		"load_module /usr/lib/angie/modules/ngx_http_auth_jwt_module.so;",
+		"map $jwt_claim_email $vswarm_upstream",
+		"map $jwt_claim_email $vswarm_token",
+		"map $jwt_claim_email $vswarm_container",
+		`auth_jwt_require_claim iss eq "https://team.cloudflareaccess.com";`,
+		`auth_jwt_require_claim aud intersect json=["aud-tag"];`,
+		"auth_jwt_require $vswarm_upstream error=403;",
+		"auth_jwt_require $vswarm_container error=403;",
+		`set $vswarm_access_certs "https://team.cloudflareaccess.com/cdn-cgi/access/certs";`,
+		"proxy_ssl_verify on;",
+		"proxy_buffering on;",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("verifying config missing %q", want)
+		}
+	}
+	for _, banned := range []string{
+		"$http_cf_access_authenticated_user_email",
+		`if ($vswarm_upstream = "")`,
+		`if ($vswarm_container = "")`,
+	} {
+		if strings.Contains(conf, banned) {
+			t.Errorf("verifying config still contains %q: the claim is empty before the access phase, and the header is forgeable", banned)
+		}
+	}
+	if n := strings.Count(conf, "auth_jwt \"vswarm\""); n != 2 {
+		t.Errorf("auth_jwt appears %d times, want once in each identity-routing server", n)
+	}
+
+	c.Access = config.Access{}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	conf = readFile(t, filepath.Join(GeneratedDir, "angie", "angie.conf"))
+	if strings.Contains(conf, "auth_jwt") || strings.Contains(conf, "load_module") {
+		t.Error("header mode loads or configures JWT verification")
+	}
+	if !strings.Contains(conf, "map $http_cf_access_authenticated_user_email $vswarm_upstream") {
+		t.Error("header mode no longer routes on the Access identity header")
+	}
+}

@@ -71,18 +71,25 @@ authority the tenant already holds inside their own container, including the
 
 ## The header-trust assumption (and how to remove it)
 
-v1 routes on the `Cf-Access-Authenticated-User-Email` header. This is trustworthy
-**only because** the origin is reachable exclusively via the Access-authenticated
-tunnel and the proxy is unreachable by tenants (above). If you cannot guarantee
-that topology, enable cryptographic verification of the Access JWT:
-`templates/njs/access-jwt.js` verifies the signed assertion (JWKS + `aud` + `iss`
-+ `exp`) so identity no longer depends on network layout. Recommended for
-production.
+Without further configuration the proxy routes on the `Cf-Access-Authenticated-User-Email`
+header, and injects the matching tenant's bearer token. That header is trustworthy
+**only because** the origin is reachable exclusively through the Access-authenticated
+tunnel and the proxy is unreachable by tenants (above), and because the proxy answers
+only the hostnames Access fronts, refusing any other name before identity is read.
 
-To enable it: set `TEAM_DOMAIN` and `AUD` in `templates/njs/access-jwt.js`, mount
-it into the proxy, `js_import` it in `angie.conf`, gate `location /` with an
-`auth_request` to the verifier, and route on `$vswarm_verified_email` instead of
-the raw header. Requires an Angie build with njs + `ngx.fetch`.
+Name the Access application and the proxy stops trusting the header at all:
+
+```yaml
+access_team_domain: yourteam.cloudflareaccess.com
+access_aud: <the application's AUD tag>
+```
+
+It then verifies the `Cf-Access-Jwt-Assertion` JWT on every request (RS256 signature
+against the team's published keys, `iss`, `aud`, `exp`) and takes identity from its
+signed `email` claim; a missing, forged, expired or foreign token is refused with a 401,
+and a valid token for an identity with no workspace with a 403. The keys are fetched
+over verified TLS, cached for an hour, and served stale if Cloudflare is unreachable.
+Identity then no longer depends on network layout. Recommended for production.
 
 ## Known limitations (v1)
 

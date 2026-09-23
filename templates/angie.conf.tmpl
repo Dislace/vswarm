@@ -1,5 +1,6 @@
 
-worker_processes auto;
+{{if .AccessAUD}}load_module /usr/lib/angie/modules/ngx_http_auth_jwt_module.so;
+{{end}}worker_processes auto;
 error_log /dev/stderr warn;
 pid /tmp/angie.pid;
 
@@ -9,6 +10,14 @@ events {
 
 http {
     resolver 127.0.0.11 valid=10s ipv6=off;
+{{- if .AccessAUD}}
+
+    # Cloudflare's key set is about 5 KB -- two keys and their certificates --
+    # and a subrequest's response is held in memory, capped at 4 KB by default.
+    subrequest_output_buffer_size 64k;
+    proxy_cache_path /tmp/vswarm-access-certs levels=1 keys_zone=vswarm_access_certs:1m
+                     max_size=1m inactive=7d use_temp_path=off;
+{{- end}}
 
 {{range .Tenants}}
     upstream vswarm_{{.Name}} {
@@ -17,12 +26,12 @@ http {
         keepalive 16;
     }
 {{end}}
-    map $http_cf_access_authenticated_user_email $vswarm_upstream {
+    map {{.Identity}} $vswarm_upstream {
         default "";
         include /etc/angie/tenants/*.upstream;
     }
 
-    map $http_cf_access_authenticated_user_email $vswarm_token {
+    map {{.Identity}} $vswarm_token {
         default "";
         include /etc/angie/tenants/*.token;
     }
@@ -32,7 +41,7 @@ http {
     # worst a wrong guess can do is miss a port in the requester's own
     # workspace. The upstream map above names an upstream block, which cannot
     # carry a port, so ports need the container's address instead.
-    map $http_cf_access_authenticated_user_email $vswarm_container {
+    map {{.Identity}} $vswarm_container {
         default "";
         include /etc/angie/tenants/*.host;
     }
@@ -42,7 +51,7 @@ http {
         ''      "";
     }
 
-    log_format vswarm '$remote_addr "$http_cf_access_authenticated_user_email" '
+    log_format vswarm '$remote_addr "{{.Identity}}" '
                       '-> $vswarm_upstream $status $body_bytes_sent';
     access_log /dev/stdout vswarm;
 
@@ -65,6 +74,9 @@ http {
     server {
         listen {{.ProxyIP}}:{{.ProxyPort}};
         server_name ~{{.DevHostPattern}};
+{{- if .AccessAUD}}
+{{template "access_certs" .}}
+{{- end}}
 
         client_max_body_size 0;
         proxy_read_timeout 3600s;
@@ -85,9 +97,15 @@ http {
                 return 204;
             }
 
+{{- if .AccessAUD}}
+{{template "access_gate" .}}
+            auth_jwt_require $vswarm_container error=403;
+{{- else}}
+
             if ($vswarm_container = "") {
                 return 403 "vibeswarm: no workspace mapped for this identity\n";
             }
+{{- end}}
 
             proxy_pass http://$vswarm_container:$devport$request_uri;
             proxy_http_version 1.1;
@@ -113,6 +131,9 @@ http {
     server {
         listen {{.ProxyIP}}:{{.ProxyPort}};
         server_name {{.Domain}};
+{{- if .AccessAUD}}
+{{template "access_certs" .}}
+{{- end}}
 
         client_max_body_size 0;
         proxy_read_timeout 3600s;
@@ -146,9 +167,15 @@ http {
                 return 204;
             }
 
+{{- if .AccessAUD}}
+{{template "access_gate" .}}
+            auth_jwt_require $vswarm_upstream error=403;
+{{- else}}
+
             if ($vswarm_upstream = "") {
                 return 403 "vibeswarm: no workspace mapped for this identity\n";
             }
+{{- end}}
 
             proxy_pass http://$vswarm_upstream$request_uri;
             proxy_http_version 1.1;
@@ -161,3 +188,37 @@ http {
         }
     }
 }
+
+{{define "access_gate"}}
+            # Identity comes from the Access JWT, verified here, and not from the
+            # header Access sets beside it: a header is only as trustworthy as the
+            # network in front of this proxy, a signature does not depend on it.
+            # The claims only exist from this phase on, which is why the refusal
+            # for an unmapped identity lives here and not in a rewrite-phase if.
+            auth_jwt "vswarm" token=$http_cf_access_jwt_assertion;
+            auth_jwt_key_request /.vswarm/access-certs jwks;
+            auth_jwt_require_claim iss eq "https://{{.AccessTeamDomain}}";
+            auth_jwt_require_claim aud intersect json=["{{.AccessAUD}}"];
+{{- end}}
+
+{{define "access_certs"}}
+        # Access's signing keys, cached for an hour and served stale when Cloudflare
+        # is unreachable. Buffering is back on because the servers turn it off and
+        # nothing unbuffered is cached; client headers stay here.
+        location = /.vswarm/access-certs {
+            internal;
+            set $vswarm_access_certs "https://{{.AccessTeamDomain}}/cdn-cgi/access/certs";
+            proxy_pass $vswarm_access_certs;
+            proxy_ssl_server_name on;
+            proxy_ssl_name {{.AccessTeamDomain}};
+            proxy_ssl_verify on;
+            proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+            proxy_pass_request_headers off;
+            proxy_pass_request_body off;
+            proxy_buffering on;
+            proxy_cache vswarm_access_certs;
+            proxy_cache_valid 200 1h;
+            proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+            proxy_ignore_headers Cache-Control Expires Set-Cookie;
+        }
+{{- end}}

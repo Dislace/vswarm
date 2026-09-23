@@ -54,6 +54,15 @@ type Storage struct {
 	Opts   map[string]string
 }
 
+// Access names the Cloudflare Access application in front of the proxy. With
+// both set the proxy verifies the Access JWT and takes identity from its
+// signed email claim; with neither it trusts the identity header, which holds
+// only while nothing but Access can reach the proxy.
+type Access struct {
+	TeamDomain string
+	AUD        string
+}
+
 type Config struct {
 	Domain          string
 	Image           string
@@ -66,6 +75,7 @@ type Config struct {
 	TokenTTL        string
 	ManageTunnel    bool
 	EdgeExternal    bool
+	Access          Access
 	Mounts          []Mount
 	Tenants         []Tenant
 
@@ -159,6 +169,12 @@ func Parse(path string) (*Config, error) {
 				section = ""
 			case "edge_external":
 				c.EdgeExternal = parseBool(val)
+				section = ""
+			case "access_team_domain":
+				c.Access.TeamDomain = unquote(val)
+				section = ""
+			case "access_aud":
+				c.Access.AUD = unquote(val)
 				section = ""
 			case "resources":
 				section = "resources"
@@ -298,6 +314,12 @@ func RepoDir(entry string) string {
 }
 
 func (c *Config) Validate() error {
+	if (c.Access.TeamDomain == "") != (c.Access.AUD == "") {
+		return fmt.Errorf("access_team_domain and access_aud are set together or not at all")
+	}
+	if strings.Contains(c.Access.TeamDomain, "/") {
+		return fmt.Errorf("access_team_domain is a hostname, not a URL: %q", c.Access.TeamDomain)
+	}
 	if strings.TrimSpace(c.Domain) == "" {
 		return fmt.Errorf("domain is required")
 	}
@@ -455,6 +477,10 @@ func (c *Config) Save() error {
 	}
 	if c.Team != "" {
 		fmt.Fprintf(&b, "team: %s\n", c.Team)
+	}
+	if c.Access.AUD != "" {
+		fmt.Fprintf(&b, "access_team_domain: %s\n", c.Access.TeamDomain)
+		fmt.Fprintf(&b, "access_aud: %s\n", c.Access.AUD)
 	}
 	if c.RepoBase != "" {
 		fmt.Fprintf(&b, "repo_base: %q\n", c.RepoBase)

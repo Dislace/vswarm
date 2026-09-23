@@ -437,10 +437,12 @@ dev hostnames and nothing else. An application on `*.<zone>` would instead put a
 login page in front of every hostname in the zone that does not already have
 one of its own.
 
-The proxy does not rely on Access alone for this. It routes on the identity
-header Access sets, and that header is only trustworthy on a hostname Access
-protects — on any other name the wildcard delivers, a client can send it
-itself. So the proxy answers exactly two shapes of name, the workspace domain
+The proxy does not rely on Access alone for this. Unless `access_aud` is set
+it routes on the identity header Access sets, and that header is only
+trustworthy on a hostname Access protects — on any other name the wildcard
+delivers, a client can send it itself. (With `access_team_domain` and
+`access_aud` set it verifies the Access JWT instead and the header stops
+mattering; see THREAT-MODEL.md.) So the proxy answers exactly two shapes of name, the workspace domain
 and `<port>-<label>.<zone>` anchored to it, and refuses every other hostname
 with a 404 before an identity is consulted. Hostnames with their own DNS
 records are unaffected by the wildcard either way: a specific record beats it,
