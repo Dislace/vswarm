@@ -321,10 +321,14 @@ browser, `http://localhost:<port>` for the workspace itself — and says so when
 the server listens on 127.0.0.1 only, which the proxy cannot reach. A command
 that exits before it listens is reported with its log rather than registered.
 
-**Vite's host check is pre-answered.** Vite refuses a `Host` it does not know,
-and the proxy passes the real one through, so `start` exports
-`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` with the workspace's zone. Nothing in a
-project's config has to change.
+**What it reports, it has checked.** Vite refuses a `Host` it does not know,
+and the proxy passes the real one through — rewriting it would break
+SvelteKit, whose CSRF check compares the request's host with the browser's
+`Origin`. So `start` exports `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` with the
+workspace's zone, which Vite 6.4 and later honour, and then asks the server for
+its page under the public hostname. A server that refuses it — an older Vite,
+or webpack-dev-server — is reported as refused, with the one line of config
+that fixes it, rather than printed as a URL that will not load.
 
 The workspace domain reaches the container as `VSWARM_DOMAIN`. The registry
 lives in `/run/vswarm/dev`, on the tmpfs the compose template declares, so it

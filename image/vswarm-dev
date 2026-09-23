@@ -55,6 +55,27 @@ listeners() {
     sort -n -u
 }
 
+# Whether the server answers its public hostname, asked the way the proxy asks:
+# the real Host header, which some dev servers refuse. Silence means it does.
+answers_as() {
+  local port="$1" host="$2" body code zone
+  body="$(mktemp)"
+  code="$(curl -sS -m 5 -o "${body}" -w '%{http_code}' -H "Host: ${host}" "http://127.0.0.1:${port}/" 2>/dev/null)"
+  zone=".${host#*.}"
+  if grep -q "Blocked request. This host" "${body}"; then
+    printf ' -- REFUSED: this Vite predates the variable that allows it.\n'
+    printf "      Add  server: { allowedHosts: ['%s'] }  to vite.config, then vswarm-dev start again." "${zone}"
+  elif grep -q "Invalid Host header" "${body}"; then
+    printf ' -- REFUSED: webpack-dev-server rejects the hostname.\n'
+    printf "      Add  allowedHosts: ['%s']  to its devServer config, then vswarm-dev start again." "${zone}"
+  elif [[ "${code}" == "000" ]]; then
+    printf ' -- no answer within 5s yet (still compiling?); vswarm-dev status checks again'
+  elif [[ "${code}" -ge 500 ]]; then
+    printf ' -- answers %s; see the log' "${code}"
+  fi
+  rm -f "${body}"
+}
+
 public_url() {
   local port="$1" label rest
   [[ -n "${VSWARM_DOMAIN:-}" ]] || return 1
@@ -71,7 +92,7 @@ describe() {
     if [[ "${scope}" == "all" ]]; then
       printf '  listening on port %s, every interface\n' "${port}"
       if url="$(public_url "${port}")"; then
-        printf "    operator's browser: %s\n" "${url}"
+        printf "    operator's browser: %s%s\n" "${url}" "$(answers_as "${port}" "${url#https://}")"
       else
         printf "    operator's browser: none -- VSWARM_DOMAIN is unset, this workspace predates dev hostnames\n"
       fi
