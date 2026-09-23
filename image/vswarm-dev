@@ -1,38 +1,94 @@
 #!/usr/bin/env bash
-# One long-running server per port, with a handle the next agent can find.
-# `start` replaces the listener it finds instead of stacking another, the child
-# gets its own process group so stopping it takes the whole tree, and the
-# registry lives on the /run tmpfs so nothing here outlives the container.
+# One long-running server per working directory, with a handle the next agent
+# can find. `start` replaces the server it finds for this directory instead of
+# stacking another, so two threads in two worktrees never touch each other's.
+# The port is read off the socket table rather than assigned: frameworks ignore
+# PORT, or move to the next free port, and only the kernel knows which they did.
+# The registry lives on the /run tmpfs, so nothing here outlives the container.
 set -euo pipefail
 
 state=/run/vswarm/dev
-port="${PORT:-5173}"
-pgid_file="${state}/${port}.pgid"
-log_file="${state}/${port}.log"
+wait_seconds="${VSWARM_DEV_WAIT:-60}"
 
 usage() {
   cat >&2 <<'USAGE'
-usage: vswarm-dev start <command>...   replace the server on PORT (default 5173)
-       vswarm-dev stop                 stop it, and everything it spawned
-       vswarm-dev status               what is on PORT, and where its log is
-       vswarm-dev list                 every port with something on it
+usage: vswarm-dev start <command>...   run it for this directory, replacing the last one
+       vswarm-dev status               what this directory's server listens on, its URLs, its log
+       vswarm-dev stop [dir|port]      stop this directory's server (or that one), and its children
+       vswarm-dev list                 every server in the workspace, and its URLs
 
-PORT selects the port and is exported to the command.
+The operator's browser reaches a server at https://<port>-<workspace host>;
+the server has to listen on every interface for that, not only on 127.0.0.1.
 USAGE
   exit 2
 }
 
+key_of() { printf '%s' "$1" | md5sum | cut -c1-12; }
+
 pgid_of() {
-  local file="$1" pgid
+  local file="${state}/$1.pgid" pgid
   [[ -s "${file}" ]] || return 1
   pgid="$(<"${file}")"
   ps -o pid= -g "${pgid}" >/dev/null 2>&1 || return 1
   printf '%s' "${pgid}"
 }
 
-stop() {
-  local pgid
-  if pgid="$(pgid_of "${pgid_file}")"; then
+# Every listening TCP socket held by a process in the group, as "port scope"
+# where scope is "all" when the proxy can reach it and "loopback" when not.
+listeners() {
+  local pgid="$1" pid inodes=""
+  for pid in $(ps -o pid= -g "${pgid}" 2>/dev/null); do
+    inodes+="$(find "/proc/${pid}/fd" -maxdepth 1 -lname 'socket:*' -printf '%l\n' 2>/dev/null |
+      sed -n 's/^socket:\[\([0-9]*\)\]$/\1/p')"$'\n'
+  done
+  [[ -n "${inodes//$'\n'/}" ]] || return 0
+  awk -v inodes="${inodes}" '
+    BEGIN { n = split(inodes, list, "\n"); for (i = 1; i <= n; i++) if (list[i] != "") own[list[i]] = 1 }
+    $4 == "0A" && ($10 in own) {
+      split($2, local, ":"); addr = local[1]
+      loopback = (length(addr) == 8 && addr ~ /7F$/) ||
+                 addr == "00000000000000000000000001000000" ||
+                 addr ~ /^0000000000000000FFFF0000......7F$/
+      print local[2], (loopback ? "loopback" : "all")
+    }' /proc/net/tcp /proc/net/tcp6 2>/dev/null |
+    while read -r hex scope; do printf '%d %s\n' "$((16#${hex}))" "${scope}"; done |
+    sort -n -u
+}
+
+public_url() {
+  local port="$1" label rest
+  [[ -n "${VSWARM_DOMAIN:-}" ]] || return 1
+  label="${VSWARM_DOMAIN%%.*}"
+  rest="${VSWARM_DOMAIN#*.}"
+  printf 'https://%s-%s.%s' "${port}" "${label}" "${rest}"
+}
+
+describe() {
+  local key="$1" pgid="$2" port scope url found=0
+  while read -r port scope; do
+    [[ -n "${port}" ]] || continue
+    found=1
+    if [[ "${scope}" == "all" ]]; then
+      printf '  listening on port %s, every interface\n' "${port}"
+      if url="$(public_url "${port}")"; then
+        printf "    operator's browser: %s\n" "${url}"
+      else
+        printf "    operator's browser: none -- VSWARM_DOMAIN is unset, this workspace predates dev hostnames\n"
+      fi
+    else
+      printf '  listening on port %s, 127.0.0.1 only\n' "${port}"
+      printf "    operator's browser: unreachable -- the proxy cannot reach a loopback-only server.\n"
+      printf '    Listen on every interface: vite --host 0.0.0.0, next dev -H 0.0.0.0, or the equivalent.\n'
+    fi
+    printf '    this workspace:     http://localhost:%s\n' "${port}"
+  done < <(listeners "${pgid}")
+  [[ "${found}" -eq 1 ]] || printf '  not listening on any port yet\n'
+  printf '  log: %s/%s.log\n' "${state}" "${key}"
+}
+
+stop_key() {
+  local key="$1" pgid
+  if pgid="$(pgid_of "${key}")"; then
     kill -TERM -"${pgid}" 2>/dev/null || true
     for _ in $(seq 40); do
       ps -o pid= -g "${pgid}" >/dev/null 2>&1 || break
@@ -41,51 +97,88 @@ stop() {
     if ps -o pid= -g "${pgid}" >/dev/null 2>&1; then
       kill -KILL -"${pgid}" 2>/dev/null || true
     fi
+    printf 'stopped the server for %s\n' "$(cat "${state}/${key}.dir" 2>/dev/null || echo "${key}")"
   fi
-  rm -f "${pgid_file}"
+  rm -f "${state}/${key}.pgid" "${state}/${key}.dir"
 }
 
 start() {
-  local pid
+  local dir key pid zone allowed
   [[ $# -gt 0 ]] || usage
-  stop
-  : >"${log_file}"
-  PORT="${port}" setsid "$@" >>"${log_file}" 2>&1 </dev/null &
-  pid=$!
-  printf '%s' "${pid}" >"${pgid_file}"
-  # A server that loses the port exits at once and leaves whatever it spawned
-  # behind, so reporting the pid without looking would register a corpse.
-  sleep 1
-  if ! kill -0 "${pid}" 2>/dev/null; then
-    stop
-    printf 'vswarm-dev: the command exited at once and did not take port %s:\n' "${port}" >&2
-    tail -n 20 "${log_file}" >&2
-    return 1
+  dir="$(pwd -P)"
+  key="$(key_of "${dir}")"
+  stop_key "${key}" >/dev/null
+  : >"${state}/${key}.log"
+  printf '%s' "${dir}" >"${state}/${key}.dir"
+  allowed="${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}"
+  if [[ -n "${VSWARM_DOMAIN:-}" ]]; then
+    zone=".${VSWARM_DOMAIN#*.}"
+    allowed="${allowed:+${allowed},}${zone}"
   fi
-  printf 'port %s: pgid %s, log %s\n' "${port}" "${pid}" "${log_file}"
+  __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="${allowed}" setsid "$@" >>"${state}/${key}.log" 2>&1 </dev/null &
+  pid=$!
+  printf '%s' "${pid}" >"${state}/${key}.pgid"
+
+  for _ in $(seq $((wait_seconds * 2))); do
+    if ! kill -0 "${pid}" 2>/dev/null; then
+      stop_key "${key}" >/dev/null
+      printf 'vswarm-dev: the command exited before it listened on anything:\n' >&2
+      tail -n 20 "${state}/${key}.log" >&2
+      return 1
+    fi
+    [[ -z "$(listeners "${pid}")" ]] || break
+    sleep 0.5
+  done
+  printf 'dev server for %s (pgid %s)\n' "${dir}" "${pid}"
+  describe "${key}" "${pid}"
 }
 
 status() {
-  local pgid
-  if ! pgid="$(pgid_of "${pgid_file}")"; then
-    printf 'nothing on port %s\n' "${port}"
+  local key pgid
+  key="$(key_of "$(pwd -P)")"
+  if ! pgid="$(pgid_of "${key}")"; then
+    printf 'no dev server for %s\n' "$(pwd -P)"
     return 1
   fi
-  ps -o pid=,etime=,args= -g "${pgid}"
-  printf 'log: %s\n' "${log_file}"
+  printf 'dev server for %s (pgid %s, up %s)\n' "$(pwd -P)" "${pgid}" "$(ps -o etime= -p "${pgid}" | tr -d ' ')"
+  describe "${key}" "${pgid}"
+}
+
+stop() {
+  local target="${1:-}" file key pgid port found=0
+  if [[ -z "${target}" || -d "${target}" ]]; then
+    stop_key "$(key_of "$(cd "${target:-.}" && pwd -P)")"
+    return 0
+  fi
+  [[ "${target}" =~ ^[0-9]+$ ]] || usage
+  shopt -s nullglob
+  for file in "${state}"/*.pgid; do
+    key="${file##*/}"
+    key="${key%.pgid}"
+    pgid="$(pgid_of "${key}")" || continue
+    while read -r port _; do
+      if [[ "${port}" == "${target}" ]]; then
+        stop_key "${key}"
+        found=1
+      fi
+    done < <(listeners "${pgid}")
+  done
+  [[ "${found}" -eq 1 ]] || printf 'no dev server is listening on %s\n' "${target}"
 }
 
 list() {
-  local file entry pgid found=0
+  local file key pgid found=0
   shopt -s nullglob
   for file in "${state}"/*.pgid; do
-    entry="${file##*/}"
-    entry="${entry%.pgid}"
-    if pgid="$(pgid_of "${file}")"; then
+    key="${file##*/}"
+    key="${key%.pgid}"
+    if pgid="$(pgid_of "${key}")"; then
       found=1
-      printf '%s\t%s\n' "${entry}" "$(ps -o args= -g "${pgid}" | head -1)"
+      printf '%s (pgid %s): %s\n' "$(cat "${state}/${key}.dir" 2>/dev/null || echo "${key}")" "${pgid}" \
+        "$(ps -o args= -p "${pgid}")"
+      describe "${key}" "${pgid}"
     else
-      rm -f "${file}"
+      rm -f "${file}" "${state}/${key}.dir"
     fi
   done
   [[ "${found}" -eq 1 ]] || echo "no dev servers running"
@@ -100,7 +193,7 @@ command="${1:-status}"
 shift || true
 case "${command}" in
   start) start "$@" ;;
-  stop) stop ;;
+  stop) stop "$@" ;;
   status) status ;;
   list) list ;;
   *) usage ;;

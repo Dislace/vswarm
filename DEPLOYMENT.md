@@ -297,26 +297,39 @@ without it. That pin is only the floor a fresh workspace starts from — see
 ### Long-running dev servers
 
 Agents start dev servers and forget them, and a workspace that has been up for
-days accumulates one per abandoned thread until the port is gone and the memory
-with it. The image ships `vswarm-dev` for that:
+days accumulates one per abandoned thread until the ports are gone and the
+memory with them. The image ships `vswarm-dev` for that:
 
 ```bash
-vswarm-dev start bun run dev   # replace whatever is on PORT (default 5173)
-vswarm-dev status              # what is on PORT, and where its log is
-vswarm-dev list                # every port with something on it
-vswarm-dev stop                # stop it, and everything it spawned
+vswarm-dev start bun run dev -- --host 0.0.0.0   # run it for this directory
+vswarm-dev status                                 # its port, its URLs, its log
+vswarm-dev list                                   # every server in the workspace
+vswarm-dev stop                                   # stop it, and everything it spawned
 ```
 
-`start` is the load-bearing one: it stops the server it finds on that port
-before starting another, so an agent that forgets to stop replaces rather than
-stacks. The child gets its own process group, which is what makes `stop` take
-the whole tree — the part a bare `kill` misses on `bun` and `vite`. A command
-that loses the port exits at once and is reported as failed with its log,
-rather than registered as running.
+**One server per working directory.** `start` stops the server it finds for
+the current directory before starting another, so an agent that forgets to stop
+replaces rather than stacks — and two threads in two worktrees never touch each
+other's servers. The child gets its own process group, which is what makes
+`stop` take the whole tree, the part a bare `kill` misses on `bun` and `vite`.
 
-The registry lives in `/run/vswarm/dev`, on the tmpfs the compose template
-declares, so it cannot describe a server that died with the container. The
-entrypoint creates that directory because `/run` belongs to root.
+**The port is observed, not assigned.** Frameworks ignore `PORT` or move to
+the next free port when theirs is taken, so `start` waits for the process group
+to listen and reads the port off the kernel's socket table. It then prints the
+two URLs that matter — `https://<port>-<label>.<zone>` for the operator's
+browser, `http://localhost:<port>` for the workspace itself — and says so when
+the server listens on 127.0.0.1 only, which the proxy cannot reach. A command
+that exits before it listens is reported with its log rather than registered.
+
+**Vite's host check is pre-answered.** Vite refuses a `Host` it does not know,
+and the proxy passes the real one through, so `start` exports
+`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` with the workspace's zone. Nothing in a
+project's config has to change.
+
+The workspace domain reaches the container as `VSWARM_DOMAIN`. The registry
+lives in `/run/vswarm/dev`, on the tmpfs the compose template declares, so it
+cannot describe a server that died with the container; the entrypoint creates
+that directory because `/run` belongs to root.
 
 ## Updating t3
 
@@ -475,8 +488,9 @@ and a more specific Access application beats a broader one.
 One consequence lives in the dev server rather than the proxy. The proxy passes
 the real `Host` through, so origin-relative assets and the HMR websocket work —
 but Vite rejects a `Host` it does not recognise, as protection against DNS
-rebinding. A workspace dev server reached this way needs its hostname in
-`server.allowedHosts`.
+rebinding. `vswarm-dev start` answers that for Vite without touching the
+project (see [Long-running dev servers](#long-running-dev-servers)); another
+framework with the same check needs the zone allowed in its own config.
 
 Until the DNS record and the Access application exist, the angie side is inert:
 nothing resolves `<port>-vs`, and the workspace hostname keeps working exactly

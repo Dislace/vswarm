@@ -40,6 +40,8 @@ func TestRenderProducesIsolatedTenantConfiguration(t *testing.T) {
 		"memory: 7g",
 		"pids_limit: 3072",
 		"vswarm-tunnel:",
+		// vswarm-dev builds the operator's URL for a dev server from it.
+		"VSWARM_DOMAIN=code.example.com",
 	} {
 		if !strings.Contains(compose, want) {
 			t.Errorf("generated compose missing %q", want)

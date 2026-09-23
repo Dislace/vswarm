@@ -62,6 +62,7 @@ services:
     environment:
       - T3CODE_HOME=/home/ai-agent/.config/t3
       - VSWARM_USER={{.Name}}
+      - VSWARM_DOMAIN={{$.Domain}}
 {{- range $.WorkspaceEnv}}
       - {{.K}}={{.V}}
 {{- end}}
