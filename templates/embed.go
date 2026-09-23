@@ -2,5 +2,5 @@ package templates
 
 import "embed"
 
-//go:embed *.tmpl njs/access-jwt.js
+//go:embed *.tmpl
 var FS embed.FS

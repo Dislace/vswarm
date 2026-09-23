@@ -618,3 +618,42 @@ func TestNetIDIsOptionalAndChecked(t *testing.T) {
 		}
 	})
 }
+
+func TestAccessApplicationRoundTripsAndIsAllOrNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	in := "domain: vs.example.com\nimage: registry.example.com/vswarm:v1\n" +
+		"access_team_domain: team.cloudflareaccess.com\naccess_aud: 0b94aud\n" +
+		"tenants:\n  - email: a@example.com\n    name: a\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Access != (Access{TeamDomain: "team.cloudflareaccess.com", AUD: "0b94aud"}) {
+		t.Fatalf("access = %#v", c.Access)
+	}
+	c.Path = path
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Parse(path)
+	if err != nil || rt.Access != c.Access {
+		t.Fatalf("round trip mismatch: %v %#v", err, rt.Access)
+	}
+
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate() rejected a fully named application: %v", err)
+	}
+	for _, half := range []Access{{TeamDomain: "team.cloudflareaccess.com"}, {AUD: "0b94aud"}} {
+		c.Access = half
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "set together") {
+			t.Errorf("Validate() = %v for half-named %#v; it would verify against nothing", err, half)
+		}
+	}
+	c.Access = Access{TeamDomain: "https://team.cloudflareaccess.com", AUD: "0b94aud"}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "hostname") {
+		t.Errorf("Validate() = %v for a URL where the issuer is built from a hostname", err)
+	}
+}

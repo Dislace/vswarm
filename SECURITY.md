@@ -28,5 +28,6 @@ v1, and preview automation reaching the viewer's browser.
 - Enable Cloudflare Access on the hostname with a strict allow-policy.
 - Keep the origin reachable **only** via the tunnel (no published ports).
 - Run `vswarm doctor` after every change; treat any `FAIL` as blocking.
-- Enable JWT verification (`templates/njs/access-jwt.js`) for production.
+- Set `access_team_domain` and `access_aud` so the proxy verifies the Access JWT
+  instead of trusting its identity header (see THREAT-MODEL.md).
 - Run on a dedicated host; consider Docker `userns-remap`.

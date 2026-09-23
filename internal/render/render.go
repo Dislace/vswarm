@@ -75,32 +75,35 @@ type tenantView struct {
 }
 
 type view struct {
-	Domain          string
-	DevHostPattern  string
-	Image           string
-	DBImage         string
-	DBMemory        string
-	Team            string
-	CPUs            string
-	Memory          string
-	Pids            int
-	EdgeSubnet      string
-	ProxyIP         string
-	ProxyPort       string
-	T3Port          string
-	ManageTunnel    bool
-	EdgeExternal    bool
-	AnyPostgres     bool
-	PlaywrightImage string
-	PWPort          string
-	HomeDir         string
-	CacheDir        string
-	WorkspaceEnv    []kv
-	RunDir          string
-	Mounts          []config.Mount
-	Driver          string
-	DriverOpts      []kv
-	Tenants         []tenantView
+	Domain           string
+	DevHostPattern   string
+	AccessTeamDomain string
+	AccessAUD        string
+	Identity         string
+	Image            string
+	DBImage          string
+	DBMemory         string
+	Team             string
+	CPUs             string
+	Memory           string
+	Pids             int
+	EdgeSubnet       string
+	ProxyIP          string
+	ProxyPort        string
+	T3Port           string
+	ManageTunnel     bool
+	EdgeExternal     bool
+	AnyPostgres      bool
+	PlaywrightImage  string
+	PWPort           string
+	HomeDir          string
+	CacheDir         string
+	WorkspaceEnv     []kv
+	RunDir           string
+	Mounts           []config.Mount
+	Driver           string
+	DriverOpts       []kv
+	Tenants          []tenantView
 }
 
 func buildView(c *config.Config) view {
@@ -109,30 +112,33 @@ func buildView(c *config.Config) view {
 		team = strings.SplitN(c.Domain, ".", 2)[0]
 	}
 	v := view{
-		Domain:          c.Domain,
-		DevHostPattern:  devHostPattern(c.Domain),
-		Image:           c.Image,
-		DBImage:         c.DBImage,
-		DBMemory:        DBMemory,
-		PlaywrightImage: c.PlaywrightImage,
-		PWPort:          PWPort,
-		Team:            team,
-		CPUs:            c.Resources.CPUs,
-		Memory:          c.Resources.Memory,
-		Pids:            c.Resources.Pids,
-		EdgeSubnet:      EdgeSubnet,
-		ProxyIP:         ProxyIP,
-		ProxyPort:       ProxyPort,
-		T3Port:          T3Port,
-		ManageTunnel:    c.ManageTunnel,
-		EdgeExternal:    c.EdgeExternal,
-		HomeDir:         HomeDir,
-		CacheDir:        CacheDir,
-		WorkspaceEnv:    workspaceEnv,
-		RunDir:          config.RunDir,
-		Mounts:          c.Mounts,
-		Driver:          driverOr(c.Storage.Driver),
-		DriverOpts:      sortedOpts(c.Storage.Opts),
+		Domain:           c.Domain,
+		DevHostPattern:   devHostPattern(c.Domain),
+		AccessTeamDomain: c.Access.TeamDomain,
+		AccessAUD:        c.Access.AUD,
+		Identity:         identity(c.Access),
+		Image:            c.Image,
+		DBImage:          c.DBImage,
+		DBMemory:         DBMemory,
+		PlaywrightImage:  c.PlaywrightImage,
+		PWPort:           PWPort,
+		Team:             team,
+		CPUs:             c.Resources.CPUs,
+		Memory:           c.Resources.Memory,
+		Pids:             c.Resources.Pids,
+		EdgeSubnet:       EdgeSubnet,
+		ProxyIP:          ProxyIP,
+		ProxyPort:        ProxyPort,
+		T3Port:           T3Port,
+		ManageTunnel:     c.ManageTunnel,
+		EdgeExternal:     c.EdgeExternal,
+		HomeDir:          HomeDir,
+		CacheDir:         CacheDir,
+		WorkspaceEnv:     workspaceEnv,
+		RunDir:           config.RunDir,
+		Mounts:           c.Mounts,
+		Driver:           driverOr(c.Storage.Driver),
+		DriverOpts:       sortedOpts(c.Storage.Opts),
 	}
 	for _, t := range c.Tenants {
 		tv := tenantView{
@@ -327,4 +333,13 @@ func renderTemplate(name, dst string, v view, mode os.FileMode) error {
 func devHostPattern(domain string) string {
 	label, rest, _ := strings.Cut(domain, ".")
 	return `^(?<devport>\d+)-` + regexp.QuoteMeta(label) + `\.` + regexp.QuoteMeta(rest) + `$`
+}
+
+// identity is the variable every routing map keys on: the email claim of a
+// verified Access JWT when the application is named, the header otherwise.
+func identity(a config.Access) string {
+	if a.AUD != "" {
+		return "$jwt_claim_email"
+	}
+	return "$http_cf_access_authenticated_user_email"
 }

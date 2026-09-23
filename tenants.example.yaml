@@ -13,6 +13,12 @@ resources:
 
 token_ttl: 30d
 
+# The Cloudflare Access application in front of the proxy. With both set, the
+# proxy verifies the Access JWT and routes on its signed email claim; without
+# them it trusts the identity header Access sets. See THREAT-MODEL.md.
+# access_team_domain: yourteam.cloudflareaccess.com
+# access_aud: 0123456789abcdef...
+
 # Host paths published read-only into every workspace. Host-managed assets
 # belong here rather than in the image: rebaking one moves the image id, and a
 # moved image id recreates every workspace, killing the sessions inside.
