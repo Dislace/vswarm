@@ -294,6 +294,47 @@ The one pin that matters to a deployment is t3's, in `image/Dockerfile`
 without it. That pin is only the floor a fresh workspace starts from — see
 [Updating t3](#updating-t3).
 
+### Long-running dev servers
+
+Agents start dev servers and forget them, and a workspace that has been up for
+days accumulates one per abandoned thread until the ports are gone and the
+memory with them. The image ships `vswarm-dev` for that:
+
+```bash
+vswarm-dev start bun run dev -- --host 0.0.0.0   # run it for this directory
+vswarm-dev status                                 # its port, its URLs, its log
+vswarm-dev list                                   # every server in the workspace
+vswarm-dev stop                                   # stop it, and everything it spawned
+```
+
+**One server per working directory.** `start` stops the server it finds for
+the current directory before starting another, so an agent that forgets to stop
+replaces rather than stacks — and two threads in two worktrees never touch each
+other's servers. The child gets its own process group, which is what makes
+`stop` take the whole tree, the part a bare `kill` misses on `bun` and `vite`.
+
+**The port is observed, not assigned.** Frameworks ignore `PORT` or move to
+the next free port when theirs is taken, so `start` waits for the process group
+to listen and reads the port off the kernel's socket table. It then prints the
+two URLs that matter — `https://<port>-<label>.<zone>` for the operator's
+browser, `http://localhost:<port>` for the workspace itself — and says so when
+the server listens on 127.0.0.1 only, which the proxy cannot reach. A command
+that exits before it listens is reported with its log rather than registered.
+
+**What it reports, it has checked.** Vite refuses a `Host` it does not know,
+and the proxy passes the real one through — rewriting it would break
+SvelteKit, whose CSRF check compares the request's host with the browser's
+`Origin`. So `start` exports `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` with the
+workspace's zone, which Vite 6.4 and later honour, and then asks the server for
+its page under the public hostname. A server that refuses it — an older Vite,
+or webpack-dev-server — is reported as refused, with the one line of config
+that fixes it, rather than printed as a URL that will not load.
+
+The workspace domain reaches the container as `VSWARM_DOMAIN`. The registry
+lives in `/run/vswarm/dev`, on the tmpfs the compose template declares, so it
+cannot describe a server that died with the container; the entrypoint creates
+that directory because `/run` belongs to root.
+
 ## Updating t3
 
 **t3 updates itself, per workspace, and the operator is not in the loop.** Its
@@ -451,8 +492,9 @@ and a more specific Access application beats a broader one.
 One consequence lives in the dev server rather than the proxy. The proxy passes
 the real `Host` through, so origin-relative assets and the HMR websocket work —
 but Vite rejects a `Host` it does not recognise, as protection against DNS
-rebinding. A workspace dev server reached this way needs its hostname in
-`server.allowedHosts`.
+rebinding. `vswarm-dev start` answers that for Vite without touching the
+project (see [Long-running dev servers](#long-running-dev-servers)); another
+framework with the same check needs the zone allowed in its own config.
 
 Until the DNS record and the Access application exist, the angie side is inert:
 nothing resolves `<port>-vs`, and the workspace hostname keeps working exactly
@@ -500,6 +542,15 @@ The host advertises 12 of the 14 operations — everything except
 `recordingStart`/`recordingStop`. t3 negotiates capabilities per host and routes
 around what is not advertised, so the remaining two simply stay unavailable
 rather than failing at call time.
+
+
+**One URL in either browser.** With the desktop app attached, t3 drives the
+operator's own browser, which reaches a workspace dev server at
+`https://<port>-<label>.<zone>` through Access and the proxy. Without it, t3
+drives this host's browser, inside the workspace, which has no Access session
+and no route to the proxy — so the host serves that same hostname from
+`127.0.0.1:<port>` directly, websockets included. An agent opens one URL and it
+works in whichever browser the preview turns out to be.
 
 ### Admin host SSH access (optional, per tenant)
 

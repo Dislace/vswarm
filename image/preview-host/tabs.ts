@@ -1,3 +1,4 @@
+import { routeWorkspaceHostnames } from "./workspace-routes.ts"
 import type { Browser, BrowserContext, Page } from "playwright-core"
 import { randomUUID } from "node:crypto"
 
@@ -64,6 +65,7 @@ export class TabRegistry {
     if (this.#context !== null) return this.#context
     const existing = this.#browser.contexts()
     this.#context = existing[0] ?? (await this.#browser.newContext())
+    await routeWorkspaceHostnames(this.#context, process.env["VSWARM_DOMAIN"])
     return this.#context
   }
 
