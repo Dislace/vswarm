@@ -6,6 +6,12 @@ image: ghcr.io/dislace/vswarm-workspace:v0.1.0
 
 db_image: postgres:18.4
 
+# The proxy and tunnel images default to a release tag pinned to its digest,
+# moved by vswarm releases. Override to use a mirror; a replacement proxy must
+# ship angie's auth_jwt module. See DEPLOYMENT.md.
+# proxy_image: docker.angie.software/angie:<tag>@sha256:<digest>
+# tunnel_image: cloudflare/cloudflared:<tag>@sha256:<digest>
+
 resources:
   cpus: "2.0"
   memory: 6g

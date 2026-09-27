@@ -571,3 +571,45 @@ func TestRenderTakesIdentityFromTheVerifiedJWTWhenAccessIsNamed(t *testing.T) {
 		t.Error("header mode no longer routes on the Access identity header")
 	}
 }
+
+func TestRenderRunsTheConfiguredProxyAndTunnelImages(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain:       "code.example.com",
+		Image:        "registry.example.com/vswarm:v1",
+		ProxyImage:   "registry.example.com/angie:1@sha256:aa",
+		ManageTunnel: true,
+		Tenants:      []config.Tenant{{Email: "a@example.com", Name: "a"}},
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	compose := readFile(t, filepath.Join(GeneratedDir, "docker-compose.yml"))
+	for _, want := range []string{
+		"image: registry.example.com/angie:1@sha256:aa",
+		"image: " + config.DefaultTunnelImage,
+	} {
+		if !strings.Contains(compose, want) {
+			t.Errorf("compose missing %q", want)
+		}
+	}
+	if strings.Contains(compose, ":latest") {
+		t.Error("compose still runs a floating :latest image")
+	}
+}
+
+func TestRenderCapsTheWorkspaceRunTmpfs(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain:  "code.example.com",
+		Image:   "registry.example.com/vswarm:v1",
+		Tenants: []config.Tenant{{Email: "a@example.com", Name: "a"}},
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	compose := readFile(t, filepath.Join(GeneratedDir, "docker-compose.yml"))
+	if !strings.Contains(compose, "      - /run:size="+RunSize+"\n") {
+		t.Errorf("workspace /run tmpfs is not capped; its pages count against the tenant's memory limit")
+	}
+}

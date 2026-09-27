@@ -68,6 +68,8 @@ type Config struct {
 	Image           string
 	DBImage         string
 	PlaywrightImage string
+	ProxyImage      string
+	TunnelImage     string
 	Team            string
 	RepoBase        string
 	Resources       Resources
@@ -98,6 +100,17 @@ const (
 // not take one, shadow one, or sit under one.
 var ReservedTargets = []string{HomeDir, CacheDir, BrowsersDir, RunDir}
 
+// The proxy and tunnel sit in front of every tenant, and the proxy loads a
+// module (auth_jwt) its config depends on, so each is pinned to a tag and the
+// digest that tag named when it was checked. A floating tag would let a
+// registry push change the edge of every deployment on its next pull.
+const (
+	// renovate: datasource=docker depName=docker.angie.software/angie
+	DefaultProxyImage = "docker.angie.software/angie:1.12.2@sha256:7d6ad2b9efa7453ad0810b1fe8410f4673f0c30f65cebf6fe1b317d4f2c99d91"
+	// renovate: datasource=docker depName=cloudflare/cloudflared
+	DefaultTunnelImage = "cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c"
+)
+
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 var knownServices = map[string]bool{"postgres": true, "playwright": true}
@@ -106,6 +119,8 @@ func Default() *Config {
 	return &Config{
 		DBImage:         "postgres:18.4",
 		PlaywrightImage: "zenika/alpine-chrome:124",
+		ProxyImage:      DefaultProxyImage,
+		TunnelImage:     DefaultTunnelImage,
 		Resources:       Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
 		RepoBase:        "git@github.com:",
 		Storage:         Storage{Driver: "local", Opts: map[string]string{}},
@@ -149,6 +164,16 @@ func Parse(path string) (*Config, error) {
 			case "playwright_image":
 				if val != "" {
 					c.PlaywrightImage = unquote(val)
+				}
+				section = ""
+			case "proxy_image":
+				if val != "" {
+					c.ProxyImage = unquote(val)
+				}
+				section = ""
+			case "tunnel_image":
+				if val != "" {
+					c.TunnelImage = unquote(val)
 				}
 				section = ""
 			case "team":
@@ -332,6 +357,12 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Storage.Driver) == "" {
 		c.Storage.Driver = "local"
 	}
+	if strings.TrimSpace(c.ProxyImage) == "" {
+		c.ProxyImage = DefaultProxyImage
+	}
+	if strings.TrimSpace(c.TunnelImage) == "" {
+		c.TunnelImage = DefaultTunnelImage
+	}
 	seenTarget := map[string]bool{}
 	for _, m := range c.Mounts {
 		for _, p := range []string{m.Source, m.Target} {
@@ -474,6 +505,14 @@ func (c *Config) Save() error {
 	}
 	if c.PlaywrightImage != "" {
 		fmt.Fprintf(&b, "playwright_image: %s\n", c.PlaywrightImage)
+	}
+	// Only an override is written back: saving the default would freeze
+	// today's pin into the file, and a newer binary could no longer move it.
+	if c.ProxyImage != "" && c.ProxyImage != DefaultProxyImage {
+		fmt.Fprintf(&b, "proxy_image: %s\n", c.ProxyImage)
+	}
+	if c.TunnelImage != "" && c.TunnelImage != DefaultTunnelImage {
+		fmt.Fprintf(&b, "tunnel_image: %s\n", c.TunnelImage)
 	}
 	if c.Team != "" {
 		fmt.Fprintf(&b, "team: %s\n", c.Team)
