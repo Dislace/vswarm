@@ -354,10 +354,12 @@ that fixes it, rather than printed as a URL that will not load.
 The workspace domain reaches the container as `VSWARM_DOMAIN`. The registry
 lives in `/run/vswarm/dev`, on the tmpfs the compose template declares, so it
 cannot describe a server that died with the container; the entrypoint creates
-that directory because `/run` belongs to root. That tmpfs is capped at 256 MiB:
-its pages count against the workspace's memory limit, and each server's log
-is appended there, so a log that outgrows it fails to write rather than
-taking the tenant's memory.
+that directory because `/run` belongs to root. That tmpfs is capped at 256 MiB,
+because its pages count against the workspace's memory limit, and each
+server's log lives there. So each log is capped too, at 16 MiB: the newest
+8 MiB in `<key>.log`, the 8 before in `<key>.log.1`, a dozen servers' worth
+well inside the tmpfs. `list` deletes the logs of servers that are no longer
+running.
 
 ## Updating t3
 

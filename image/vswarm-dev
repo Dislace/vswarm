@@ -9,6 +9,9 @@ set -euo pipefail
 
 state=/run/vswarm/dev
 wait_seconds="${VSWARM_DEV_WAIT:-60}"
+# Each log keeps its newest half in <key>.log and the half before in
+# <key>.log.1, so a server holds at most 16 MiB of the 256 MiB /run tmpfs.
+log_half_bytes=$((8 * 1024 * 1024))
 
 usage() {
   cat >&2 <<'USAGE'
@@ -105,6 +108,23 @@ describe() {
   done < <(listeners "${pgid}")
   [[ "${found}" -eq 1 ]] || printf '  not listening on any port yet\n'
   printf '  log: %s/%s.log\n' "${state}" "${key}"
+  [[ ! -e "${state}/${key}.log.1" ]] || printf '  older output: %s/%s.log.1\n' "${state}" "${key}"
+}
+
+# Copies stdin to the log, moving each full half aside to <log>.1. head -c
+# counts bytes, not reads, so a half ends exactly at the cap and nothing is
+# lost at the seam; stdbuf -o0 makes it write each read as it arrives, lines
+# or not, instead of holding it in a stdio buffer. A half that comes up short
+# is the end of the input. Every exit goes through the drain: a writer that
+# stopped reading would kill the server with EPIPE on its next line.
+cap_log() {
+  local log="$1" size
+  while stdbuf -o0 head -c "${log_half_bytes}" >"${log}"; do
+    size="$(stat -c %s "${log}" 2>/dev/null || echo "${log_half_bytes}")"
+    [[ "${size}" -ge "${log_half_bytes}" ]] || break
+    mv -f "${log}" "${log}.1" 2>/dev/null || :
+  done
+  exec cat >/dev/null
 }
 
 stop_key() {
@@ -120,28 +140,36 @@ stop_key() {
     fi
     printf 'stopped the server for %s\n' "$(cat "${state}/${key}.dir" 2>/dev/null || echo "${key}")"
   fi
-  rm -f "${state}/${key}.pgid" "${state}/${key}.dir" "${state}/${key}.log"
+  rm -f "${state}/${key}".{pgid,dir,log,log.1}
 }
 
 start() {
-  local dir key pid zone allowed
+  local dir key pid zone allowed out writer
   [[ $# -gt 0 ]] || usage
   dir="$(pwd -P)"
   key="$(key_of "${dir}")"
   stop_key "${key}" >/dev/null
-  : >"${state}/${key}.log"
   printf '%s' "${dir}" >"${state}/${key}.dir"
+  : >"${state}/${key}.log"
+  exec {out}> >(exec >/dev/null 2>&1 && cap_log "${state}/${key}.log")
+  writer=$!
   allowed="${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}"
   if [[ -n "${VSWARM_DOMAIN:-}" ]]; then
     zone=".${VSWARM_DOMAIN#*.}"
     allowed="${allowed:+${allowed},}${zone}"
   fi
-  __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="${allowed}" setsid "$@" >>"${state}/${key}.log" 2>&1 </dev/null &
+  __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="${allowed}" setsid "$@" >&"${out}" 2>&1 {out}>&- </dev/null &
   pid=$!
+  exec {out}>&-
   printf '%s' "${pid}" >"${state}/${key}.pgid"
 
   for _ in $(seq $((wait_seconds * 2))); do
     if ! kill -0 "${pid}" 2>/dev/null; then
+      # The writer finishes once the last of the output has reached the log.
+      for _ in $(seq 20); do
+        kill -0 "${writer}" 2>/dev/null || break
+        sleep 0.1
+      done
       printf 'vswarm-dev: the command exited before it listened on anything:\n' >&2
       tail -n 20 "${state}/${key}.log" >&2
       stop_key "${key}" >/dev/null
@@ -199,8 +227,12 @@ list() {
         "$(ps -o args= -p "${pgid}")"
       describe "${key}" "${pgid}"
     else
-      rm -f "${file}" "${state}/${key}.dir"
+      rm -f "${file}" "${state}/${key}".{dir,log,log.1}
     fi
+  done
+  # start writes .dir before the log, so a log without one is left over.
+  for file in "${state}"/*.log "${state}"/*.log.1; do
+    [[ -e "${file%%.log*}.dir" ]] || rm -f "${file}"
   done
   [[ "${found}" -eq 1 ]] || echo "no dev servers running"
 }
