@@ -637,7 +637,7 @@ From inside an admin workspace, the host answers on the tenant's own bridge
 gateway, `172.31.<net_id>.1`:
 
 ```sh
-ssh -i ~/.ssh/vswarm-admin ubuntu@172.31.10.1
+ssh -i ~/.ssh/vswarm-admin <host-user>@172.31.<net_id>.1
 ```
 
 ## Commands the deployment layer runs
