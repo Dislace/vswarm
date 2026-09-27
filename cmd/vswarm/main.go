@@ -24,52 +24,64 @@ const (
 // binary and needs to tell what it already has without fetching it again.
 var version = "dev"
 
-func main() {
-	if len(os.Args) < 2 {
+func main() { os.Exit(run(os.Args[1:])) }
+
+func run(args []string) int {
+	if len(args) < 1 {
 		usage()
-		os.Exit(2)
+		return 2
 	}
-	var err error
-	switch os.Args[1] {
+	name, rest := args[0], args[1:]
+	help, err := checkArgs(name, rest)
+	if help != "" {
+		fmt.Print(help)
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 2
+	}
+	switch name {
 	case "init":
 		err = cmdInit()
 	case "render":
 		err = cmdRender()
 	case "up":
-		err = cmdUp(os.Args[2:])
+		err = cmdUp(rest)
 	case "down":
 		err = cmdDown()
 	case "build":
 		err = cmdBuild()
 	case "status":
-		err = cmdStatus(os.Args[2:])
+		err = cmdStatus(rest)
 	case "logs":
-		err = cmdLogs(os.Args[2:])
+		err = cmdLogs(rest)
 	case "doctor":
-		err = cmdDoctor(os.Args[2:])
+		err = cmdDoctor(rest)
 	case "tenant":
-		err = cmdTenant(os.Args[2:])
+		err = cmdTenant(rest)
 	case "pair":
-		err = cmdPair(os.Args[2:])
+		err = cmdPair(rest)
 	case "provision":
-		err = cmdProvision(os.Args[2:])
+		err = cmdProvision(rest)
 	case "migrate":
-		err = cmdMigrate(os.Args[2:])
+		err = cmdMigrate(rest)
 	case "version", "--version":
 		fmt.Println(version)
-		return
+		return 0
 	case "-h", "--help", "help":
 		usage()
-		return
+		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", name)
 		usage()
-		os.Exit(2)
+		return 2
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func usage() {
@@ -79,35 +91,10 @@ USAGE
   vswarm <command> [args]
 
 COMMANDS
-  init                     scaffold tenants.yaml, .env, config/ (idempotent)
-  render                   tenants.yaml -> generated/ (compose + angie)
-  build                    build ./image and tag it with the image: from
-                           tenants.yaml (vswarm checkout only; hosts pull)
-  up                       render, start the stack, provision + pair every tenant
-                           (--json reports what each container did: created,
-                            recreated, unchanged or absent)
-  down                     stop the stack
-  tenant add <email> <name>   add a tenant; start + pair it   (--no-up to skip)
-  tenant rm <name>            remove a tenant                  (--purge to wipe data)
-  tenant ls                   list tenants + container status
-  pair <name>              reconcile a tenant to one T3 session: reuse it while it
-                           has life left, mint when it does not, revoke the rest,
-                           inject it into angie and deliver it to the workspace
-  provision <name>         make a tenant's work volume match a staging tree
-                           (--from <dir> is the desired state: what it holds is
-                            delivered, what vswarm delivered before and it no
-                            longer holds is taken back, and nothing the tenant
-                            made is touched. --remove <rel-path> is an escape
-                            hatch for paths vswarm never delivered, repeatable)
-  migrate <name>           copy a legacy config/<name>/home bind mount into the
-                           work volume, dropping rebuildable caches
-                           (--keep-derived copies them too)
-  status                   docker compose ps                       (--json)
-  logs [tenant]            follow logs (proxy by default)
-  doctor                   verify isolation + config invariants
-                           (--wait=30s retries until they pass or time out)
-  version                  print the release this binary was built from
 `)
+	for _, c := range commands {
+		fmt.Print(c.summary)
+	}
 }
 
 func loadConfig() (*config.Config, error) {

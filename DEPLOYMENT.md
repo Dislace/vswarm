@@ -612,7 +612,10 @@ vswarm doctor --wait=60s            # gate: non-zero if any isolation invariant 
 ## Outputs / exit codes
 
 - All commands: `0` on success, non-zero on failure (safe for `changed_when`/
-  `failed_when`).
+  `failed_when`). A command line the subcommand does not take — an unknown
+  flag, a missing or extra argument — exits `2` before anything runs;
+  `-h`/`--help` prints that subcommand's usage and exits `0`, also without
+  running it.
 - `vswarm doctor`: `0` only if every invariant PASSes — use it as a deploy gate.
   `--wait=<duration>` re-runs the whole set until it passes or the deadline
   expires, so the caller does not need a retry loop around it. Without it,
