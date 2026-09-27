@@ -27,7 +27,11 @@ const provisionedHeader = "# Written by `vswarm provision`. Every path below was
 const (
 	reposManifest = ".config/vswarm/repos"
 	pgEnvFile     = ".pg.env"
-	pwEnvFile     = ".playwright.env"
+	// No longer produced: it described the Playwright sidecar, removed in
+	// v0.3.0. It stays a roster path so the next `up` takes back a copy an
+	// earlier provision delivered, rather than leaving a contract for a
+	// container that no longer exists.
+	pwEnvFile = ".playwright.env"
 )
 
 // rosterPaths is everything a provision without --from can speak for.
@@ -124,13 +128,6 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 		}
 		env := render.PGEnv("vswarm-db-"+name, "postgres", "postgres", strings.TrimSpace(string(pw)))
 		if err := os.WriteFile(filepath.Join(stage, pgEnvFile), []byte(env), 0o600); err != nil {
-			return err
-		}
-	}
-
-	if t.HasService("playwright") {
-		env := render.PWEnv(name)
-		if err := os.WriteFile(filepath.Join(stage, pwEnvFile), []byte(env), 0o600); err != nil {
 			return err
 		}
 	}

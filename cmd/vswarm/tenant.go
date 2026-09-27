@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dislace/vswarm/internal/config"
 	"github.com/dislace/vswarm/internal/dockerx"
 	"github.com/dislace/vswarm/internal/render"
 )
@@ -54,7 +53,7 @@ func tenantAdd(args []string) error {
 	}
 	email, name := pos[0], pos[1]
 
-	c, err := config.Parse(tenantsFile)
+	c, err := parseConfig()
 	if err != nil {
 		return err
 	}
@@ -94,7 +93,7 @@ func tenantRm(args []string) error {
 	}
 	name := pos[0]
 
-	c, err := config.Parse(tenantsFile)
+	c, err := parseConfig()
 	if err != nil {
 		return err
 	}
@@ -109,9 +108,6 @@ func tenantRm(args []string) error {
 	_ = dockerx.Compose(dockerx.StackTimeout, "rm", "-sf", "vswarm-"+name)
 	if t.HasService("postgres") {
 		_ = dockerx.Compose(dockerx.StackTimeout, "rm", "-sf", "vswarm-db-"+name)
-	}
-	if t.HasService("playwright") {
-		_ = dockerx.Compose(dockerx.StackTimeout, "rm", "-sf", "vswarm-playwright-"+name)
 	}
 	if err := render.Render(c); err != nil {
 		return err

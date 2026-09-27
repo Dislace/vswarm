@@ -22,7 +22,6 @@ const (
 	EdgeSubnet   = "172.31.0.0/24"
 	ProxyIP      = "172.31.0.2"
 	PGPort       = "5432"
-	PWPort       = "9222"
 
 	DBMemory = "1g"
 
@@ -76,9 +75,6 @@ type tenantView struct {
 	PGUser      string
 	PGDatabase  string
 	PGPassword  string
-
-	Playwright  bool
-	PWContainer string
 }
 
 type view struct {
@@ -103,8 +99,6 @@ type view struct {
 	ManageTunnel     bool
 	EdgeExternal     bool
 	AnyPostgres      bool
-	PlaywrightImage  string
-	PWPort           string
 	HomeDir          string
 	CacheDir         string
 	WorkspaceEnv     []kv
@@ -132,8 +126,6 @@ func buildView(c *config.Config) view {
 		DBMemory:         DBMemory,
 		ProxyImage:       c.ProxyImage,
 		TunnelImage:      c.TunnelImage,
-		PlaywrightImage:  c.PlaywrightImage,
-		PWPort:           PWPort,
 		Team:             team,
 		CPUs:             c.Resources.CPUs,
 		Memory:           c.Resources.Memory,
@@ -170,10 +162,6 @@ func buildView(c *config.Config) view {
 			tv.PGUser = "postgres"
 			tv.PGDatabase = "postgres"
 			v.AnyPostgres = true
-		}
-		if t.HasService("playwright") {
-			tv.Playwright = true
-			tv.PWContainer = "vswarm-playwright-" + t.Name
 		}
 		v.Tenants = append(v.Tenants, tv)
 	}
@@ -273,10 +261,6 @@ func PGPasswordPath(name string) string {
 func PGEnv(dbContainer, user, database, password string) string {
 	return fmt.Sprintf("PGHOST=%s\nPGPORT=%s\nPGUSER=%s\nPGPASSWORD=%s\nPGDATABASE=%s\n",
 		dbContainer, PGPort, user, password, database)
-}
-
-func PWEnv(name string) string {
-	return fmt.Sprintf("CHROMIUM_CDP_URL=http://vswarm-playwright-%s:%s\n", name, PWPort)
 }
 
 func resolvePGPassword(name string) (string, error) {
