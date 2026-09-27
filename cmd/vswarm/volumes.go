@@ -211,7 +211,7 @@ func staleProvisioned(previous, staged []string) []string {
 // into it, so it reports nothing rather than guessing: the failure mode of a
 // missing list is a file left behind, never a file deleted.
 func readProvisioned(image, volume string) []string {
-	out, err := dockerx.Output("docker", volumeRunArgs(image, "cat",
+	out, err := dockerx.OutputWithin(dockerx.StackTimeout, "docker", volumeRunArgs(image, "cat",
 		[]string{"-v", volume + ":/dst"}, []string{"/dst/" + provisionedList})...)
 	if err != nil {
 		return nil
@@ -247,7 +247,7 @@ func parseProvisioned(s string) []string {
 }
 
 func volumeRun(image, entrypoint string, mounts, args []string) error {
-	return dockerx.Run("docker", volumeRunArgs(image, entrypoint, mounts, args)...)
+	return dockerx.Run(dockerx.StackTimeout, "docker", volumeRunArgs(image, entrypoint, mounts, args)...)
 }
 
 func volumeRunArgs(image, entrypoint string, mounts, args []string) []string {
@@ -374,9 +374,11 @@ func cmdMigrate(args []string) error {
 			excludes = append(excludes, "--exclude="+p)
 		}
 	}
-	if err := volumeRun(c.Image, "bash",
+	// A legacy home is as large as the tenant made it, so the copy runs as
+	// long as it takes rather than being cut off halfway.
+	if err := dockerx.Run(dockerx.NoDeadline, "docker", volumeRunArgs(c.Image, "bash",
 		[]string{"-v", abs + ":/src:ro", "-v", vol + ":/dst"},
-		[]string{"-c", migrateScript(excludes)}); err != nil {
+		[]string{"-c", migrateScript(excludes)})...); err != nil {
 		return fmt.Errorf("migrate %s: %w", name, err)
 	}
 

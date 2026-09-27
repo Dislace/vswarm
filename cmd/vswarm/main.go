@@ -165,7 +165,7 @@ func cmdUp(args []string) error {
 		return err
 	}
 	before := containerIDs()
-	if err := dockerx.ComposeTo(humanOut, "up", "-d", "--remove-orphans"); err != nil {
+	if err := dockerx.ComposeTo(dockerx.StackTimeout, humanOut, "up", "-d", "--remove-orphans"); err != nil {
 		return err
 	}
 	report := classifyUp(stackContainers(c), before, containerIDs())
@@ -193,7 +193,7 @@ func cmdUp(args []string) error {
 	return nil
 }
 
-func cmdDown() error { return dockerx.Compose("down") }
+func cmdDown() error { return dockerx.Compose(dockerx.StackTimeout, "down") }
 
 // imageContext is the committed build context. The image is an input to a
 // deployment, not something a deployment renders: CI builds this directory and
@@ -209,7 +209,7 @@ func cmdBuild() error {
 		return fmt.Errorf("no build context at ./%s — `build` runs from a vswarm checkout; "+
 			"a deployment pulls the published image named by `image:`", imageContext)
 	}
-	return dockerx.Run("docker", "build", "-t", c.Image, imageContext)
+	return dockerx.Run(dockerx.NoDeadline, "docker", "build", "-t", c.Image, imageContext)
 }
 
 func cmdStatus(args []string) error {
@@ -220,7 +220,7 @@ func cmdStatus(args []string) error {
 		}
 		return emitJSON(stackStatus(c))
 	}
-	return dockerx.Compose("ps")
+	return dockerx.Compose(dockerx.QueryTimeout, "ps")
 }
 
 func cmdLogs(args []string) error {
@@ -228,7 +228,7 @@ func cmdLogs(args []string) error {
 	if len(args) > 0 {
 		svc = "vswarm-" + args[0]
 	}
-	return dockerx.Compose("logs", "-f", svc)
+	return dockerx.Compose(dockerx.NoDeadline, "logs", "-f", svc)
 }
 
 const defaultTenants = `# VibeSwarm tenant manifest — the only file you edit by hand.
