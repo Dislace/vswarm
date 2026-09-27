@@ -83,6 +83,8 @@ type view struct {
 	Image            string
 	DBImage          string
 	DBMemory         string
+	ProxyImage       string
+	TunnelImage      string
 	Team             string
 	CPUs             string
 	Memory           string
@@ -120,6 +122,8 @@ func buildView(c *config.Config) view {
 		Image:            c.Image,
 		DBImage:          c.DBImage,
 		DBMemory:         DBMemory,
+		ProxyImage:       c.ProxyImage,
+		TunnelImage:      c.TunnelImage,
 		PlaywrightImage:  c.PlaywrightImage,
 		PWPort:           PWPort,
 		Team:             team,

@@ -291,6 +291,17 @@ To bake a deployment-specific toolchain in, build your own image `FROM` the
 published one and put your tag in `image:`. There is no overlay mechanism to
 learn: the config key already names any image you like.
 
+### Proxy and tunnel images
+
+The proxy (angie) and the tunnel (cloudflared) images come from `proxy_image:`
+and `tunnel_image:`. Unlike `image:` they have defaults, each a release tag
+pinned to the digest it named when vswarm last moved it, so a registry push
+does not change the edge of a deployment on its next pull; a vswarm release
+moves them. Override one to pull through a mirror or to pin a different
+build. A replacement proxy image must ship angie's `auth_jwt` module
+(`/usr/lib/angie/modules/ngx_http_auth_jwt_module.so`), which the rendered
+config loads once `access_aud` is set.
+
 ### Workspace tooling
 
 The image ships t3 and the base toolchain (git, gh, node, python3, build

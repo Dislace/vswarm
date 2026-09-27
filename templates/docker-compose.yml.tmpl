@@ -21,7 +21,7 @@ networks:
 
 services:
   vswarm-proxy:
-    image: docker.angie.software/angie:latest
+    image: {{.ProxyImage}}
     container_name: vswarm-proxy
     restart: unless-stopped
     command: ["angie", "-g", "daemon off;"]
@@ -39,7 +39,7 @@ services:
 
 {{- if .ManageTunnel}}
   vswarm-tunnel:
-    image: cloudflare/cloudflared:latest
+    image: {{.TunnelImage}}
     container_name: vswarm-tunnel
     restart: unless-stopped
     command: ["tunnel", "--no-autoupdate", "run", "--token", "${VSWARM_TUNNEL_TOKEN}"]

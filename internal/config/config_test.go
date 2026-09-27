@@ -657,3 +657,38 @@ func TestAccessApplicationRoundTripsAndIsAllOrNothing(t *testing.T) {
 		t.Errorf("Validate() = %v for a URL where the issuer is built from a hostname", err)
 	}
 }
+
+func TestProxyAndTunnelImagesArePinnedAndOverridable(t *testing.T) {
+	for name, img := range map[string]string{"proxy": DefaultProxyImage, "tunnel": DefaultTunnelImage} {
+		if !strings.Contains(img, "@sha256:") || strings.Contains(img, ":latest") {
+			t.Errorf("default %s image %q must be a tag pinned to its digest", name, img)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	in := "domain: code.example.com\nimage: vswarm/workspace:test\n" +
+		"proxy_image: registry.example.com/angie:1@sha256:aa\n"
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ProxyImage != "registry.example.com/angie:1@sha256:aa" || c.TunnelImage != DefaultTunnelImage {
+		t.Fatalf("proxy_image = %q, tunnel_image = %q", c.ProxyImage, c.TunnelImage)
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "proxy_image: registry.example.com/angie:1@sha256:aa") {
+		t.Errorf("an override must survive a save:\n%s", saved)
+	}
+	if strings.Contains(string(saved), "tunnel_image:") {
+		t.Errorf("a default must not be saved, or a newer binary cannot move it:\n%s", saved)
+	}
+}
