@@ -409,17 +409,28 @@ container is attached to exactly its own tenant network.
 
 ### Browsers for test suites (every tenant)
 
-The workspace image bakes Chromium at `/opt/ms-playwright`, pinned by the
-`PLAYWRIGHT_VERSION` build arg and kept current by renovate, and every workspace
-gets `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`. Repos pinning the same
-Playwright version run `playwright test` with no download.
+The workspace image bakes Chromium's headless shell at `/opt/ms-playwright`,
+pinned by the `PLAYWRIGHT_VERSION` build arg and kept current by renovate, and
+every workspace gets `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`. Repos pinning
+the same Playwright version run headless Chromium tests with no download.
 
 The path is outside `~` and `~/.cache` on purpose: both are named-volume mount
 points and would shadow an image-baked directory at runtime.
 
-A repo pinning a *different* Playwright version downloads its own browser into
-`~/.cache/ms-playwright` — correct, just not free. Keeping repo pins and
-`PLAYWRIGHT_VERSION` aligned is what makes it free.
+Only the headless shell is baked — the preview host and headless test runs use
+nothing else, and the full browser would add about 640MB to every image. A repo
+that needs more — headed Chromium, `channel: 'chromium'`, video recording — or
+pins a *different* Playwright version, points Playwright at the cache volume,
+because the baked directory belongs to root:
+
+```bash
+export PLAYWRIGHT_BROWSERS_PATH=~/.cache/ms-playwright
+npx playwright install chromium
+```
+
+That is correct, just not free: the download lands on the cache volume and
+survives recreates. Keeping repo pins and `PLAYWRIGHT_VERSION` aligned is what
+keeps headless runs free.
 
 ### Playwright sidecar (optional, per tenant)
 

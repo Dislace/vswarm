@@ -49,7 +49,7 @@ RUN install -d -o 1000 -g 1000 -m 0755 \
 ARG PLAYWRIGHT_VERSION=1.62.1
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN --mount=type=cache,target=/root/.npm \
-    npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
+    npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps --only-shell chromium \
  && chmod -R a+rX /opt/ms-playwright \
  && npm cache clean --force
 

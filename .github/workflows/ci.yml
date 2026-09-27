@@ -76,6 +76,15 @@ jobs:
           docker logs ci-workspace
           docker exec ci-workspace vswarm-t3 status
           test "${status}" = healthy
+      # The image bakes Chromium's headless shell alone, and the preview host
+      # launches it only once it holds a credential, which CI never delivers.
+      - name: The preview host launches the baked browser
+        run: |
+          docker exec ci-workspace node -e '
+            require("/opt/preview-host/node_modules/playwright-core").chromium
+              .launch({ args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"] })
+              .then((browser) => { console.log(`launched ${browser.version()}`); return browser.close() })
+              .catch((error) => { console.error(error); process.exit(1) })'
       - name: Stop the workspace
         if: always()
         run: docker rm -f ci-workspace || true
