@@ -220,7 +220,10 @@ func cmdLogs(args []string) error {
 
 const defaultTenants = `# VibeSwarm tenant manifest — the only file you edit by hand.
 domain: t3code.example.com
-image: ghcr.io/dislace/vswarm-workspace:latest
+# Required, and deliberately left blank: render refuses to run until it names
+# a published release, e.g. ghcr.io/dislace/vswarm-workspace:vX.Y.Z, or pinned
+# to the digest in that release's workspace-image.txt. See DEPLOYMENT.md.
+image:
 resources:
   cpus: "2.0"
   memory: 6g
