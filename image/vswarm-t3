@@ -18,6 +18,7 @@ USAGE
   vswarm-t3 active       print the active version alone
   vswarm-t3 cli <args>   run the active t3 CLI
   vswarm-t3 bootstrap    seed the runtime from the image, drop superseded versions
+  vswarm-t3 prune        drop superseded versions while t3 is running
 
 A runtime is a t3 release payload -- the self-contained executable and the
 files beside it -- under ~/.config/t3/runtime/versions/<version>. t3 updates
@@ -140,8 +141,22 @@ seed() {
   mv "${staging}" "${VERSIONS}/${version}"
 }
 
+# Everything but what the state file names and what the image bakes. t3
+# publishes a runtime by renaming a finished staging directory into place and
+# records it in the state file only afterwards, so a running workspace spares a
+# runtime younger than min_age minutes, and any runtime a process is running.
+# A state file that names no active version, read mid-write or lost, says
+# nothing about what is in use, so it prunes nothing.
 prune() {
-  local keep=" $* " dir name
+  local min_age=$1 dir name version
+  local keep=" "
+  if [ -z "$(active_version)" ]; then
+    return 0
+  fi
+  while IFS= read -r version; do
+    keep+="${version} "
+  done < <(named_versions)
+  keep+="$(baked_version) "
   for dir in "${VERSIONS}"/*/; do
     if [ ! -d "${dir}" ]; then
       continue
@@ -150,13 +165,19 @@ prune() {
     case "${keep}" in
       *" ${name} "*) continue ;;
     esac
+    if [ "${min_age}" -gt 0 ] && [ -n "$(find "${dir}" -maxdepth 0 -mmin "-${min_age}")" ]; then
+      continue
+    fi
+    if pgrep -f -- "/versions/${name}/" >/dev/null 2>&1; then
+      continue
+    fi
     rm -rf "${dir}"
+    echo "vswarm-t3: removed superseded runtime ${name}" >&2
   done
 }
 
 cmd_bootstrap() {
-  local baked active version
-  local -a keep=()
+  local baked active
   baked=$(baked_version)
   link_versions
   seed "${baked}"
@@ -171,12 +192,7 @@ cmd_bootstrap() {
   elif [ "$(state_field protocol)" != "$(service_protocol)" ]; then
     write_state "${active}"
   fi
-  while IFS= read -r version; do
-    if [ -n "${version}" ]; then
-      keep+=("${version}")
-    fi
-  done < <(named_versions)
-  prune "${keep[@]}" "${active}" "${baked}"
+  prune 0
 }
 
 cmd_active() {
@@ -254,6 +270,7 @@ case "${1:-status}" in
   status) cmd_status ;;
   active) cmd_active ;;
   bootstrap) cmd_bootstrap ;;
+  prune) prune 60 ;;
   cli)
     shift
     cmd_cli "$@"

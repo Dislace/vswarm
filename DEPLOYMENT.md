@@ -362,6 +362,7 @@ Inside a workspace:
 vswarm-t3 status     # the active version, the installed ones, the launcher
 vswarm-t3 active     # the active version alone
 vswarm-t3 bootstrap  # seed from the image, drop superseded versions
+vswarm-t3 prune      # drop superseded versions while t3 runs
 ```
 
 `vswarm doctor` asserts per tenant that t3 is running under its launcher and
@@ -372,6 +373,12 @@ Runtimes are rebuildable, so they live on the cache volume and the work volume
 carries only the record of which one is active. Dropping a cache volume costs a
 tenant the version they chose, not their data: the workspace falls back to the
 image floor and the update is one click away again.
+
+Each update leaves the runtime it replaced behind, about 200MB apiece. The
+entrypoint runs `vswarm-t3 prune` hourly, so a workspace that stays up keeps
+only the active version, both sides of the last update, and the image's own.
+It spares a runtime published in the last hour or still running, because t3
+names a new runtime in its state file only after installing it.
 
 ### Dev postgres sidecar (optional, per tenant)
 
