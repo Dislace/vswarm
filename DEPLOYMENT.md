@@ -304,7 +304,7 @@ memory with them. The image ships `vswarm-dev` for that:
 vswarm-dev start bun run dev -- --host 0.0.0.0   # run it for this directory
 vswarm-dev status                                 # its port, its URLs, its log
 vswarm-dev list                                   # every server in the workspace
-vswarm-dev stop                                   # stop it, and everything it spawned
+vswarm-dev stop                                   # stop it, everything it spawned, and its log
 ```
 
 **One server per working directory.** `start` stops the server it finds for
