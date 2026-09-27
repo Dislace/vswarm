@@ -193,6 +193,15 @@ reaching for it repeatedly wants the staging tree instead.
 `vswarm up` runs it for every tenant, so a fresh workspace gets its database
 contract with no extra step.
 
+**Without `--from` there is no staging tree to be the desired state**, so a
+provision run by `up`, by `tenant add`, or by hand without `--from` speaks only
+for the files tenants.yaml produces (`~/.pg.env`, `~/.playwright.env`,
+`~/.config/vswarm/repos`): it delivers and takes back those, and leaves every
+file an earlier `--from` delivered in place and on the record. `up` therefore
+never withdraws a staged credential ahead of the `provision --from` that
+follows it. To take back everything a staging tree delivered, provision
+`--from` an empty directory.
+
 ### Tenant sessions
 
 Angie proxies an authenticated Cloudflare Access identity to a workspace and

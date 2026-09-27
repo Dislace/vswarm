@@ -55,8 +55,10 @@ var commands = []command{
 			"                           (--from <dir> is the desired state: what it holds is\n" +
 			"                            delivered, what vswarm delivered before and it no\n" +
 			"                            longer holds is taken back, and nothing the tenant\n" +
-			"                            made is touched. --remove <rel-path> is an escape\n" +
-			"                            hatch for paths vswarm never delivered, repeatable)\n"},
+			"                            made is touched. Without --from only the files\n" +
+			"                            tenants.yaml produces are delivered or taken back.\n" +
+			"                            --remove <rel-path> is an escape hatch for paths\n" +
+			"                            vswarm never delivered, repeatable)\n"},
 	{name: "migrate", synopsis: "vswarm migrate <name> [--keep-derived]",
 		flags: []string{"--keep-derived"}, min: 1, max: 1,
 		summary: "  migrate <name>           copy a legacy config/<name>/home bind mount into the\n" +

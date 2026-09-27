@@ -209,3 +209,29 @@ func TestWriteProvisionedKeepsTheListOutOfItsOwnContents(t *testing.T) {
 		}
 	}
 }
+
+func TestProvisionWithoutAStagingTreeKeepsWhatAnEarlierOneDelivered(t *testing.T) {
+	// The tenant dropped postgres; an earlier --from delivered the admin key
+	// and an OCI config.
+	previous := []string{".config/dislace/oci.env", ".config/vswarm/repos", ".pg.env", ".ssh/vswarm-admin"}
+	staged := []string{".config/vswarm/repos"}
+
+	stale, record := reconcileProvisioned(previous, staged, false)
+	if !reflect.DeepEqual(stale, []string{".pg.env"}) {
+		t.Errorf("without --from, stale = %v; want only the roster file that left, "+
+			"never what an earlier --from delivered", stale)
+	}
+	want := []string{".config/dislace/oci.env", ".config/vswarm/repos", ".ssh/vswarm-admin"}
+	if !reflect.DeepEqual(record, want) {
+		t.Errorf("without --from, record = %v, want %v; forgetting a delivered file "+
+			"means the next --from can never take it back", record, want)
+	}
+
+	stale, record = reconcileProvisioned(previous, staged, true)
+	if !reflect.DeepEqual(stale, []string{".config/dislace/oci.env", ".pg.env", ".ssh/vswarm-admin"}) {
+		t.Errorf("with --from, stale = %v; the staging tree is the whole desired state", stale)
+	}
+	if !reflect.DeepEqual(record, staged) {
+		t.Errorf("with --from, record = %v, want %v", record, staged)
+	}
+}
