@@ -77,8 +77,9 @@ jobs:
           docker logs ci-workspace
           docker exec ci-workspace vswarm-t3 status
           test "${status}" = healthy
-      # The image bakes Chromium's headless shell alone, and the preview host
-      # launches it only once it holds a credential, which CI never delivers.
+      # The image bakes Chromium's headless shell alone. The preview host
+      # launches it at startup, but a failed launch only restarts the host
+      # under the entrypoint's supervisor, which the healthcheck never sees.
       - name: The preview host launches the baked browser
         run: |
           docker exec ci-workspace node -e '
