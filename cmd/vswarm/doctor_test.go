@@ -48,9 +48,8 @@ func TestInterpretMounts(t *testing.T) {
 // off an exit code, so a missing python3, a missing stat or a stopped container
 // produced [PASS] on an isolation claim nobody had checked.
 //
-// Dislace/core gates the fleet converge on doctor's exit code
-// (roles/vswarm/tasks/main.yml, `until: vswarm_doctor.rc == 0`), so the false
-// PASS was load-bearing beyond the console.
+// A deployment that gates its converge on doctor's exit code would accept
+// that false PASS, so it was load-bearing beyond the console.
 func TestInterpretProbe(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

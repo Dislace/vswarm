@@ -340,9 +340,9 @@ func tenantReachesProxy(container string) bool {
 // that ran and found nothing, and conflating the two is how a negative
 // assertion ("A cannot reach B") turns a missing tool into a PASS.
 //
-// This matters beyond the console: Dislace/core gates the fleet converge on
-// doctor's exit code (roles/vswarm/tasks/main.yml, `until: vswarm_doctor.rc ==
-// 0`), so an isolation claim nobody verified is one an apply will accept.
+// This matters beyond the console: a deployment that gates its converge on
+// doctor's exit code (for example an Ansible `until: rc == 0`) accepts an
+// isolation claim nobody verified.
 type probe int
 
 const (
