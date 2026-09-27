@@ -23,31 +23,6 @@ RUN install -m 0755 -d /etc/apt/keyrings \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-# The floor a fresh workspace starts from, and the service launcher every
-# workspace runs under. t3 installs and activates newer runtimes itself, under
-# the tenant's own ${T3CODE_HOME}/runtime, but the launcher supervising them
-# only moves with the image, and a runtime can require a newer one than the
-# image bakes.
-#
-# That requirement is a protocol number, and a release refuses to activate under
-# a launcher speaking any other one: 0.0.42 speaks 2, and 0.0.43 onwards wants 3.
-# So this pin is what decides how far a tenant can update itself, and moving it
-# is the only way past a protocol bump -- a launcher cannot install its own
-# replacement. It is a nightly because no 0.0.43 has shipped stable yet.
-# renovate: datasource=npm depName=t3
-ARG T3_VERSION=0.0.43-nightly.20260917.1851
-RUN --mount=type=cache,target=/root/.npm \
-    npm install -g "t3@${T3_VERSION}" \
- && npm cache clean --force
-
-# Resolve the release payload t3 now ships separately, give it a stable path,
-# and record the service protocol its launcher speaks. The build fails when the
-# executable is absent or the protocol is not a single number, so a t3 release
-# that repackages again stops here instead of in a tenant's crash loop; the
-# rationale lives in the script.
-COPY bake-t3-runtime.sh /tmp/bake-t3-runtime.sh
-RUN /tmp/bake-t3-runtime.sh && rm /tmp/bake-t3-runtime.sh
-
 RUN curl -fsSL -o /tmp/uv-installer.sh https://astral.sh/uv/0.12.9/install.sh \
  && UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh /tmp/uv-installer.sh \
  && rm /tmp/uv-installer.sh \
@@ -82,6 +57,34 @@ COPY preview-host/package.json preview-host/package-lock.json /opt/preview-host/
 RUN --mount=type=cache,target=/root/.npm \
     npm --prefix /opt/preview-host ci --omit=dev
 COPY preview-host/*.ts /opt/preview-host/
+
+# The floor a fresh workspace starts from, and the service launcher every
+# workspace runs under. t3 installs and activates newer runtimes itself, under
+# the tenant's own ${T3CODE_HOME}/runtime, but the launcher supervising them
+# only moves with the image, and a runtime can require a newer one than the
+# image bakes.
+#
+# That requirement is a protocol number, and a release refuses to activate under
+# a launcher speaking any other one: 0.0.42 speaks 2, and 0.0.43 onwards wants 3.
+# So this pin is what decides how far a tenant can update itself, and moving it
+# is the only way past a protocol bump -- a launcher cannot install its own
+# replacement. It is a nightly because no 0.0.43 has shipped stable yet.
+#
+# It is the last heavy layer because it is the pin that moves most often, and
+# every layer after it is rebuilt and reshipped whenever it does.
+# renovate: datasource=npm depName=t3
+ARG T3_VERSION=0.0.43-nightly.20260917.1851
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g "t3@${T3_VERSION}" \
+ && npm cache clean --force
+
+# Resolve the release payload t3 now ships separately, give it a stable path,
+# and record the service protocol its launcher speaks. The build fails when the
+# executable is absent or the protocol is not a single number, so a t3 release
+# that repackages again stops here instead of in a tenant's crash loop; the
+# rationale lives in the script.
+COPY bake-t3-runtime.sh /tmp/bake-t3-runtime.sh
+RUN /tmp/bake-t3-runtime.sh && rm /tmp/bake-t3-runtime.sh
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY vswarm-repos /usr/local/bin/vswarm-repos
