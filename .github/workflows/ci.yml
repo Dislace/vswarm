@@ -42,8 +42,9 @@ jobs:
           dockerfile: image/Dockerfile
       - name: shellcheck
         run: |
-          sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck image/bake-t3-runtime.sh image/entrypoint.sh image/prompt.sh image/vswarm-repos image/vswarm-t3 scripts/*.sh
+          command -v shellcheck >/dev/null || { sudo apt-get update && sudo apt-get install -y shellcheck; }
+          shellcheck --version
+          shellcheck image/bake-t3-runtime.sh image/entrypoint.sh image/prompt.sh image/vswarm-repos image/vswarm-t3 image/vswarm-dev scripts/*.sh
       - name: The preview host resolves the browser the image bakes
         run: scripts/check-playwright-pin.sh
 
@@ -76,6 +77,16 @@ jobs:
           docker logs ci-workspace
           docker exec ci-workspace vswarm-t3 status
           test "${status}" = healthy
+      # The image bakes Chromium's headless shell alone. The preview host
+      # launches it at startup, but a failed launch only restarts the host
+      # under the entrypoint's supervisor, which the healthcheck never sees.
+      - name: The preview host launches the baked browser
+        run: |
+          docker exec ci-workspace node -e '
+            require("/opt/preview-host/node_modules/playwright-core").chromium
+              .launch({ args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"] })
+              .then((browser) => { console.log(`launched ${browser.version()}`); return browser.close() })
+              .catch((error) => { console.error(error); process.exit(1) })'
       - name: Stop the workspace
         if: always()
         run: docker rm -f ci-workspace || true

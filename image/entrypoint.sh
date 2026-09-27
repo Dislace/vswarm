@@ -76,12 +76,27 @@ vswarm-t3 bootstrap
 # version that will not open the database -- but it exits when t3 dies for any
 # other reason, expecting its own supervisor to bring it back. Under systemd
 # that is Restart=; here it is this loop.
+#
+# Each update t3 takes leaves the runtime it replaced on disk, ~200MB apiece,
+# and only bootstrap drops them, so a workspace that stays up for weeks keeps
+# every one. Waking hourly while the launcher runs drops them as they go.
+prune_every=3600
 while true; do
   "${T3_RUNTIME}/t3" __service-launcher &
   child_pid=$!
   set +e
-  wait "${child_pid}"
-  status=$?
+  while true; do
+    sleep "${prune_every}" &
+    ticker=$!
+    finished=""
+    wait -n -p finished "${child_pid}" "${ticker}"
+    status=$?
+    if [[ "${finished:-}" != "${ticker}" || "${stopping}" -eq 1 ]]; then
+      kill "${ticker}" 2>/dev/null
+      break
+    fi
+    vswarm-t3 prune
+  done
   set -e
   child_pid=""
   if [[ "${stopping}" -eq 1 ]]; then

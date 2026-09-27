@@ -324,7 +324,7 @@ memory with them. The image ships `vswarm-dev` for that:
 vswarm-dev start bun run dev -- --host 0.0.0.0   # run it for this directory
 vswarm-dev status                                 # its port, its URLs, its log
 vswarm-dev list                                   # every server in the workspace
-vswarm-dev stop                                   # stop it, and everything it spawned
+vswarm-dev stop                                   # stop it, everything it spawned, and its log
 ```
 
 **One server per working directory.** `start` stops the server it finds for
@@ -385,6 +385,7 @@ Inside a workspace:
 vswarm-t3 status     # the active version, the installed ones, the launcher
 vswarm-t3 active     # the active version alone
 vswarm-t3 bootstrap  # seed from the image, drop superseded versions
+vswarm-t3 prune      # drop superseded versions while t3 runs
 ```
 
 `vswarm doctor` asserts per tenant that t3 is running under its launcher and
@@ -395,6 +396,12 @@ Runtimes are rebuildable, so they live on the cache volume and the work volume
 carries only the record of which one is active. Dropping a cache volume costs a
 tenant the version they chose, not their data: the workspace falls back to the
 image floor and the update is one click away again.
+
+Each update leaves the runtime it replaced behind, about 200MB apiece. The
+entrypoint runs `vswarm-t3 prune` hourly, so a workspace that stays up keeps
+only the active version, both sides of the last update, and the image's own.
+It spares a runtime published in the last hour or still running, because t3
+names a new runtime in its state file only after installing it.
 
 ### Dev postgres sidecar (optional, per tenant)
 
@@ -432,17 +439,28 @@ container is attached to exactly its own tenant network.
 
 ### Browsers for test suites (every tenant)
 
-The workspace image bakes Chromium at `/opt/ms-playwright`, pinned by the
-`PLAYWRIGHT_VERSION` build arg and kept current by renovate, and every workspace
-gets `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`. Repos pinning the same
-Playwright version run `playwright test` with no download.
+The workspace image bakes Chromium's headless shell at `/opt/ms-playwright`,
+pinned by the `PLAYWRIGHT_VERSION` build arg and kept current by renovate, and
+every workspace gets `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`. Repos pinning
+the same Playwright version run headless Chromium tests with no download.
 
 The path is outside `~` and `~/.cache` on purpose: both are named-volume mount
 points and would shadow an image-baked directory at runtime.
 
-A repo pinning a *different* Playwright version downloads its own browser into
-`~/.cache/ms-playwright` — correct, just not free. Keeping repo pins and
-`PLAYWRIGHT_VERSION` aligned is what makes it free.
+Only the headless shell is baked — the preview host and headless test runs use
+nothing else, and the full browser would add about 640MB to every image. A repo
+that needs more — headed Chromium, `channel: 'chromium'`, video recording — or
+pins a *different* Playwright version, points Playwright at the cache volume,
+because the baked directory belongs to root:
+
+```bash
+export PLAYWRIGHT_BROWSERS_PATH=~/.cache/ms-playwright
+npx playwright install chromium
+```
+
+That is correct, just not free: the download lands on the cache volume and
+survives recreates. Keeping repo pins and `PLAYWRIGHT_VERSION` aligned is what
+keeps headless runs free.
 
 ### Playwright sidecar (optional, per tenant)
 

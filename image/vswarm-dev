@@ -120,7 +120,7 @@ stop_key() {
     fi
     printf 'stopped the server for %s\n' "$(cat "${state}/${key}.dir" 2>/dev/null || echo "${key}")"
   fi
-  rm -f "${state}/${key}.pgid" "${state}/${key}.dir"
+  rm -f "${state}/${key}.pgid" "${state}/${key}.dir" "${state}/${key}.log"
 }
 
 start() {
@@ -142,9 +142,9 @@ start() {
 
   for _ in $(seq $((wait_seconds * 2))); do
     if ! kill -0 "${pid}" 2>/dev/null; then
-      stop_key "${key}" >/dev/null
       printf 'vswarm-dev: the command exited before it listened on anything:\n' >&2
       tail -n 20 "${state}/${key}.log" >&2
+      stop_key "${key}" >/dev/null
       return 1
     fi
     [[ -z "$(listeners "${pid}")" ]] || break
