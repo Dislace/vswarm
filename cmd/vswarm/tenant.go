@@ -74,7 +74,7 @@ func tenantAdd(args []string) error {
 		fmt.Printf("added %s (%s); run `vswarm up` to start it\n", name, email)
 		return nil
 	}
-	if err := dockerx.Compose("up", "-d", "vswarm-"+name); err != nil {
+	if err := dockerx.Compose(dockerx.StackTimeout, "up", "-d", "vswarm-"+name); err != nil {
 		return err
 	}
 	if err := provisionTenant(c, name, ""); err != nil {
@@ -106,12 +106,12 @@ func tenantRm(args []string) error {
 	if err := c.Save(); err != nil {
 		return err
 	}
-	_ = dockerx.Compose("rm", "-sf", "vswarm-"+name)
+	_ = dockerx.Compose(dockerx.StackTimeout, "rm", "-sf", "vswarm-"+name)
 	if t.HasService("postgres") {
-		_ = dockerx.Compose("rm", "-sf", "vswarm-db-"+name)
+		_ = dockerx.Compose(dockerx.StackTimeout, "rm", "-sf", "vswarm-db-"+name)
 	}
 	if t.HasService("playwright") {
-		_ = dockerx.Compose("rm", "-sf", "vswarm-playwright-"+name)
+		_ = dockerx.Compose(dockerx.StackTimeout, "rm", "-sf", "vswarm-playwright-"+name)
 	}
 	if err := render.Render(c); err != nil {
 		return err

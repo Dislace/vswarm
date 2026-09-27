@@ -23,6 +23,16 @@ const provisionedList = ".config/vswarm/provisioned"
 const provisionedHeader = "# Written by `vswarm provision`. Every path below was delivered by vswarm\n" +
 	"# and is taken back once it leaves the staging tree.\n"
 
+// The files provision writes from tenants.yaml alone, whatever --from says.
+const (
+	reposManifest = ".config/vswarm/repos"
+	pgEnvFile     = ".pg.env"
+	pwEnvFile     = ".playwright.env"
+)
+
+// rosterPaths is everything a provision without --from can speak for.
+var rosterPaths = []string{reposManifest, pgEnvFile, pwEnvFile}
+
 var derivedPaths = []string{
 	".cache",
 	".npm",
@@ -93,8 +103,8 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 	}
 
 	if len(t.Repos) > 0 {
-		dir := filepath.Join(stage, ".config", "vswarm")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		dst := filepath.Join(stage, filepath.FromSlash(reposManifest))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
 		var manifest strings.Builder
@@ -102,7 +112,7 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 		for _, r := range t.Repos {
 			manifest.WriteString(c.RepoURL(r) + "\n")
 		}
-		if err := os.WriteFile(filepath.Join(dir, "repos"), []byte(manifest.String()), 0o644); err != nil {
+		if err := os.WriteFile(dst, []byte(manifest.String()), 0o644); err != nil {
 			return err
 		}
 	}
@@ -113,14 +123,14 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 			return fmt.Errorf("read pg password (run `vswarm render` first): %w", err)
 		}
 		env := render.PGEnv("vswarm-db-"+name, "postgres", "postgres", strings.TrimSpace(string(pw)))
-		if err := os.WriteFile(filepath.Join(stage, ".pg.env"), []byte(env), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(stage, pgEnvFile), []byte(env), 0o600); err != nil {
 			return err
 		}
 	}
 
 	if t.HasService("playwright") {
 		env := render.PWEnv(name)
-		if err := os.WriteFile(filepath.Join(stage, ".playwright.env"), []byte(env), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(stage, pwEnvFile), []byte(env), 0o600); err != nil {
 			return err
 		}
 	}
@@ -138,12 +148,12 @@ func provisionTenant(c *config.Config, name, from string, remove ...string) erro
 	if len(staged) == 0 && len(previous) == 0 && len(remove) == 0 {
 		return nil
 	}
-	stale := staleProvisioned(previous, staged)
+	stale, record := reconcileProvisioned(previous, staged, from != "")
 
 	// The new list ships inside the same delivery as the files it describes,
 	// and only after the removals it authorised have landed: a delivery that
 	// fails leaves a list that still claims the paths it has not yet given up.
-	if err := writeProvisioned(stage, staged); err != nil {
+	if err := writeProvisioned(stage, record); err != nil {
 		return err
 	}
 	if len(stale) > 0 {
@@ -206,12 +216,48 @@ func staleProvisioned(previous, staged []string) []string {
 	return out
 }
 
+// reconcileProvisioned decides what a provision takes back and what its new
+// record claims. A staging tree is the whole desired state, so with one the
+// record is what it holds. Without one — `up`, `tenant add` — the run knows
+// only what tenants.yaml produces: it takes back only those files, and keeps
+// on the record everything an earlier --from delivered, so the next --from
+// can still retire it. `up` runs before the deployment's own --from; taking
+// those files here left every tenant without them until that step ran, and
+// for good if anything between the two failed.
+func reconcileProvisioned(previous, staged []string, fromStage bool) (stale, record []string) {
+	stale = staleProvisioned(previous, staged)
+	if fromStage {
+		return stale, staged
+	}
+	var own []string
+	for _, p := range stale {
+		if contains(rosterPaths, p) {
+			own = append(own, p)
+		}
+	}
+	claimed := map[string]bool{}
+	for _, p := range staged {
+		claimed[p] = true
+	}
+	for _, p := range previous {
+		if checkRelPath(p) == nil && !contains(own, p) {
+			claimed[p] = true
+		}
+	}
+	record = make([]string, 0, len(claimed))
+	for p := range claimed {
+		record = append(record, p)
+	}
+	sort.Strings(record)
+	return own, record
+}
+
 // readProvisioned returns the list the last provision left in the volume.
 // A volume without one has, as far as vswarm can prove, had nothing delivered
 // into it, so it reports nothing rather than guessing: the failure mode of a
 // missing list is a file left behind, never a file deleted.
 func readProvisioned(image, volume string) []string {
-	out, err := dockerx.Output("docker", volumeRunArgs(image, "cat",
+	out, err := dockerx.OutputWithin(dockerx.StackTimeout, "docker", volumeRunArgs(image, "cat",
 		[]string{"-v", volume + ":/dst"}, []string{"/dst/" + provisionedList})...)
 	if err != nil {
 		return nil
@@ -247,7 +293,7 @@ func parseProvisioned(s string) []string {
 }
 
 func volumeRun(image, entrypoint string, mounts, args []string) error {
-	return dockerx.Run("docker", volumeRunArgs(image, entrypoint, mounts, args)...)
+	return dockerx.Run(dockerx.StackTimeout, "docker", volumeRunArgs(image, entrypoint, mounts, args)...)
 }
 
 func volumeRunArgs(image, entrypoint string, mounts, args []string) []string {
@@ -374,9 +420,11 @@ func cmdMigrate(args []string) error {
 			excludes = append(excludes, "--exclude="+p)
 		}
 	}
-	if err := volumeRun(c.Image, "bash",
+	// A legacy home is as large as the tenant made it, so the copy runs as
+	// long as it takes rather than being cut off halfway.
+	if err := dockerx.Run(dockerx.NoDeadline, "docker", volumeRunArgs(c.Image, "bash",
 		[]string{"-v", abs + ":/src:ro", "-v", vol + ":/dst"},
-		[]string{"-c", migrateScript(excludes)}); err != nil {
+		[]string{"-c", migrateScript(excludes)})...); err != nil {
 		return fmt.Errorf("migrate %s: %w", name, err)
 	}
 

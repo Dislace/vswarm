@@ -26,6 +26,13 @@ const (
 
 	DBMemory = "1g"
 
+	// RunSize caps the workspace's /run tmpfs. Its pages are charged to the
+	// workspace's memory cgroup, and vswarm-dev appends each dev server's log
+	// there, so uncapped, a chatty server left running for days spends the
+	// tenant's memory limit on log lines until the OOM killer picks a
+	// process. Capped, the log write fails instead.
+	RunSize = "256m"
+
 	// A tenant's subnet is 172.31.<net_id>.0/24 where the roster declares
 	// net_id, falling back to 10+position for rosters that do not. The same
 	// octet authorizes that tenant's admin key on the host (core/infra), so
@@ -83,6 +90,8 @@ type view struct {
 	Image            string
 	DBImage          string
 	DBMemory         string
+	ProxyImage       string
+	TunnelImage      string
 	Team             string
 	CPUs             string
 	Memory           string
@@ -100,6 +109,7 @@ type view struct {
 	CacheDir         string
 	WorkspaceEnv     []kv
 	RunDir           string
+	RunSize          string
 	Mounts           []config.Mount
 	Driver           string
 	DriverOpts       []kv
@@ -120,6 +130,8 @@ func buildView(c *config.Config) view {
 		Image:            c.Image,
 		DBImage:          c.DBImage,
 		DBMemory:         DBMemory,
+		ProxyImage:       c.ProxyImage,
+		TunnelImage:      c.TunnelImage,
 		PlaywrightImage:  c.PlaywrightImage,
 		PWPort:           PWPort,
 		Team:             team,
@@ -136,6 +148,7 @@ func buildView(c *config.Config) view {
 		CacheDir:         CacheDir,
 		WorkspaceEnv:     workspaceEnv,
 		RunDir:           config.RunDir,
+		RunSize:          RunSize,
 		Mounts:           c.Mounts,
 		Driver:           driverOr(c.Storage.Driver),
 		DriverOpts:       sortedOpts(c.Storage.Opts),

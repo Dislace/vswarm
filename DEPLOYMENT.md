@@ -193,6 +193,15 @@ reaching for it repeatedly wants the staging tree instead.
 `vswarm up` runs it for every tenant, so a fresh workspace gets its database
 contract with no extra step.
 
+**Without `--from` there is no staging tree to be the desired state**, so a
+provision run by `up`, by `tenant add`, or by hand without `--from` speaks only
+for the files tenants.yaml produces (`~/.pg.env`, `~/.playwright.env`,
+`~/.config/vswarm/repos`): it delivers and takes back those, and leaves every
+file an earlier `--from` delivered in place and on the record. `up` therefore
+never withdraws a staged credential ahead of the `provision --from` that
+follows it. To take back everything a staging tree delivered, provision
+`--from` an empty directory.
+
 ### Tenant sessions
 
 Angie proxies an authenticated Cloudflare Access identity to a workspace and
@@ -282,6 +291,17 @@ To bake a deployment-specific toolchain in, build your own image `FROM` the
 published one and put your tag in `image:`. There is no overlay mechanism to
 learn: the config key already names any image you like.
 
+### Proxy and tunnel images
+
+The proxy (angie) and the tunnel (cloudflared) images come from `proxy_image:`
+and `tunnel_image:`. Unlike `image:` they have defaults, each a release tag
+pinned to the digest it named when vswarm last moved it, so a registry push
+does not change the edge of a deployment on its next pull; a vswarm release
+moves them. Override one to pull through a mirror or to pin a different
+build. A replacement proxy image must ship angie's `auth_jwt` module
+(`/usr/lib/angie/modules/ngx_http_auth_jwt_module.so`), which the rendered
+config loads once `access_aud` is set.
+
 ### Workspace tooling
 
 The image ships t3 and the base toolchain (git, gh, node, python3, build
@@ -333,7 +353,10 @@ that fixes it, rather than printed as a URL that will not load.
 The workspace domain reaches the container as `VSWARM_DOMAIN`. The registry
 lives in `/run/vswarm/dev`, on the tmpfs the compose template declares, so it
 cannot describe a server that died with the container; the entrypoint creates
-that directory because `/run` belongs to root.
+that directory because `/run` belongs to root. That tmpfs is capped at 256 MiB:
+its pages count against the workspace's memory limit, and each server's log
+is appended there, so a log that outgrows it fails to write rather than
+taking the tenant's memory.
 
 ## Updating t3
 
@@ -630,7 +653,10 @@ vswarm doctor --wait=60s            # gate: non-zero if any isolation invariant 
 ## Outputs / exit codes
 
 - All commands: `0` on success, non-zero on failure (safe for `changed_when`/
-  `failed_when`).
+  `failed_when`). A command line the subcommand does not take — an unknown
+  flag, a missing or extra argument — exits `2` before anything runs;
+  `-h`/`--help` prints that subcommand's usage and exits `0`, also without
+  running it.
 - `vswarm doctor`: `0` only if every invariant PASSes — use it as a deploy gate.
   `--wait=<duration>` re-runs the whole set until it passes or the deadline
   expires, so the caller does not need a retry loop around it. Without it,
