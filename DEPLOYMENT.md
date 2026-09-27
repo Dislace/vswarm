@@ -195,9 +195,10 @@ contract with no extra step.
 
 **Without `--from` there is no staging tree to be the desired state**, so a
 provision run by `up`, by `tenant add`, or by hand without `--from` speaks only
-for the files tenants.yaml produces (`~/.pg.env`, `~/.playwright.env`,
-`~/.config/vswarm/repos`): it delivers and takes back those, and leaves every
-file an earlier `--from` delivered in place and on the record. `up` therefore
+for the files tenants.yaml produces (`~/.pg.env`, `~/.config/vswarm/repos`, and
+`~/.playwright.env`, which it no longer produces and therefore takes back): it
+delivers and takes back those, and leaves every file an earlier `--from`
+delivered in place and on the record. `up` therefore
 never withdraws a staged credential ahead of the `provision --from` that
 follows it. To take back everything a staging tree delivered, provision
 `--from` an empty directory.
@@ -437,6 +438,9 @@ PGDATABASE=postgres
 workspace can open a TCP connection to this tenant's db container, and the db
 container is attached to exactly its own tenant network.
 
+Apps run natively in the workspace (`bun run start:dev`) against it; reset with
+`dropdb && createdb && bun run migration:run`.
+
 ### Browsers for test suites (every tenant)
 
 The workspace image bakes Chromium's headless shell at `/opt/ms-playwright`,
@@ -462,25 +466,17 @@ That is correct, just not free: the download lands on the cache volume and
 survives recreates. Keeping repo pins and `PLAYWRIGHT_VERSION` aligned is what
 keeps headless runs free.
 
-### Playwright sidecar (optional, per tenant)
-
-Opt a tenant in with `services: [playwright]`. For each opted-in tenant,
-`vswarm up` runs a stateless Chromium sidecar `vswarm-playwright-<name>` on the
-tenant's network only (image from `playwright_image:`, default
-`zenika/alpine-chrome:124`), exposing Chrome DevTools on port 9222. The
-connection contract is delivered as `~/.playwright.env`:
-
-```sh
-CHROMIUM_CDP_URL=http://vswarm-playwright-<name>:9222
-```
-
-Use it with `playwright-core` (`npm i playwright-core` — no browser download)
-via `chromium.connectOverCDP(process.env.CHROMIUM_CDP_URL)`. The sidecar is
-stateless: pages live as long as the connection; keep long-lived browser state
-in the workspace instead.
-
-Apps run natively in the workspace (`bun run start:dev`) against it; reset with
-`dropdb && createdb && bun run migration:run`.
+**The Playwright sidecar is gone (v0.3.0).** Earlier releases could give a
+tenant a disposable Chromium in its own container, `vswarm-playwright-<name>`,
+reached over CDP at the `CHROMIUM_CDP_URL` in `~/.playwright.env`. The browser
+above replaced it: code that called
+`chromium.connectOverCDP(process.env.CHROMIUM_CDP_URL)` calls
+`chromium.launch()` instead. `vswarm` refuses a tenants.yaml in which a tenant
+still sets `services: [playwright]` rather than ignore it; drop the service,
+and the next `vswarm up` removes the container and takes back
+`~/.playwright.env`. A `playwright_image:` line is only warned about and
+ignored, because earlier `vswarm tenant add/rm` saved it into every
+tenants.yaml they wrote; delete it, or let the next `tenant add/rm` drop it.
 
 ### Reaching a workspace dev server
 
@@ -550,12 +546,9 @@ preview host closes that gap: it holds one WebSocket to the workspace's own t3
 server, drives the Chromium baked into this image, and answers automation
 requests with Playwright.
 
-It launches that browser in-process rather than reaching across to the sidecar.
-The image already ships Chromium, so a second container buys nothing here, and
-Chrome binds its debugging port to loopback regardless of
+It launches that browser in-process rather than connecting to one over the
+network: Chrome binds its debugging port to loopback regardless of
 `--remote-debugging-address`, which makes a networked CDP endpoint unreliable.
-The sidecar remains available for agents that want a disposable browser of their
-own; the preview host simply does not depend on it.
 
 `preview-host/package.json` pins `playwright-core` to the same version as
 `PLAYWRIGHT_VERSION`. They must move together: the client resolves a browser

@@ -27,9 +27,6 @@ func stackContainers(c *config.Config) []string {
 		if t.HasService("postgres") {
 			names = append(names, "vswarm-db-"+t.Name)
 		}
-		if t.HasService("playwright") {
-			names = append(names, "vswarm-playwright-"+t.Name)
-		}
 	}
 	return names
 }

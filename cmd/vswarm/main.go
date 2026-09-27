@@ -97,8 +97,21 @@ COMMANDS
 	}
 }
 
-func loadConfig() (*config.Config, error) {
+// parseConfig reads the roster and puts what Parse ignored in front of the
+// operator. Warnings go to stderr so `--json` keeps stdout to its document.
+func parseConfig() (*config.Config, error) {
 	c, err := config.Parse(tenantsFile)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range c.Warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+	return c, nil
+}
+
+func loadConfig() (*config.Config, error) {
+	c, err := parseConfig()
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", tenantsFile, err)
 	}

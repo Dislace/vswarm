@@ -29,7 +29,6 @@ tenants:
     repos: [Acme/api, Acme/web]
   - email: alex@example.com
     name: alex
-    services: [playwright]
 ```
 
 ```console
@@ -64,7 +63,6 @@ flowchart LR
     P -->|"alex@"| WA["workspace: alex"]
     P -->|unknown| F["403"]
     WS --- DS[("postgres<br/>sarah")]
-    WA --- PL["chromium<br/>alex"]
 ```
 
 A workspace locks itself the moment it is network-reachable — reach one directly

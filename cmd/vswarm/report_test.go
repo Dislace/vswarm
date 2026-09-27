@@ -64,7 +64,7 @@ func TestStackContainersFollowsTheRosterNotTheHost(t *testing.T) {
 		ManageTunnel: true,
 		Tenants: []config.Tenant{
 			{Name: "alice", Email: "alice@example.com", Services: []string{"postgres"}},
-			{Name: "bob", Email: "bob@example.com", Services: []string{"playwright"}},
+			{Name: "bob", Email: "bob@example.com"},
 		},
 	}
 	want := []string{
@@ -73,7 +73,6 @@ func TestStackContainersFollowsTheRosterNotTheHost(t *testing.T) {
 		"vswarm-alice",
 		"vswarm-db-alice",
 		"vswarm-bob",
-		"vswarm-playwright-bob",
 	}
 	if got := stackContainers(c); !reflect.DeepEqual(got, want) {
 		t.Fatalf("stackContainers() = %v, want %v", got, want)

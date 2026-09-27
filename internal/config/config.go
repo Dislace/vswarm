@@ -64,24 +64,27 @@ type Access struct {
 }
 
 type Config struct {
-	Domain          string
-	Image           string
-	DBImage         string
-	PlaywrightImage string
-	ProxyImage      string
-	TunnelImage     string
-	Team            string
-	RepoBase        string
-	Resources       Resources
-	Storage         Storage
-	TokenTTL        string
-	ManageTunnel    bool
-	EdgeExternal    bool
-	Access          Access
-	Mounts          []Mount
-	Tenants         []Tenant
+	Domain       string
+	Image        string
+	DBImage      string
+	ProxyImage   string
+	TunnelImage  string
+	Team         string
+	RepoBase     string
+	Resources    Resources
+	Storage      Storage
+	TokenTTL     string
+	ManageTunnel bool
+	EdgeExternal bool
+	Access       Access
+	Mounts       []Mount
+	Tenants      []Tenant
 
 	Path string
+
+	// Warnings are problems Parse let through: lines it ignored that the
+	// operator should delete. They are never saved.
+	Warnings []string
 }
 
 // Container paths the workspace service already occupies. They live here
@@ -113,19 +116,26 @@ const (
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
-var knownServices = map[string]bool{"postgres": true, "playwright": true}
+var knownServices = map[string]bool{"postgres": true}
+
+// sidecarRemoved answers a tenants.yaml that still names the Playwright
+// sidecar. A tenant declaring the service is refused: ignoring it would leave
+// the operator looking for a container that is never started. The image key
+// is only a warning, because `tenant add/rm` used to save it into every
+// roster, and a roster that never used the sidecar should not stop working.
+const sidecarRemoved = "the Playwright sidecar was removed in vswarm v0.3.0; every workspace " +
+	"bakes Chromium at " + BrowsersDir + " instead (DEPLOYMENT.md, \"Browsers for test suites\")"
 
 func Default() *Config {
 	return &Config{
-		DBImage:         "postgres:18.4",
-		PlaywrightImage: "zenika/alpine-chrome:124",
-		ProxyImage:      DefaultProxyImage,
-		TunnelImage:     DefaultTunnelImage,
-		Resources:       Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
-		RepoBase:        "git@github.com:",
-		Storage:         Storage{Driver: "local", Opts: map[string]string{}},
-		TokenTTL:        "30d",
-		ManageTunnel:    true,
+		DBImage:      "postgres:18.4",
+		ProxyImage:   DefaultProxyImage,
+		TunnelImage:  DefaultTunnelImage,
+		Resources:    Resources{CPUs: "2.0", Memory: "6g", Pids: 4096},
+		RepoBase:     "git@github.com:",
+		Storage:      Storage{Driver: "local", Opts: map[string]string{}},
+		TokenTTL:     "30d",
+		ManageTunnel: true,
 	}
 }
 
@@ -162,9 +172,9 @@ func Parse(path string) (*Config, error) {
 				}
 				section = ""
 			case "playwright_image":
-				if val != "" {
-					c.PlaywrightImage = unquote(val)
-				}
+				c.Warnings = append(c.Warnings, fmt.Sprintf("%s:%d: playwright_image: %s; ignored; "+
+					"delete the line (earlier `vswarm tenant add/rm` saved it into every tenants.yaml, "+
+					"sidecar or not)", path, n+1, sidecarRemoved))
 				section = ""
 			case "proxy_image":
 				if val != "" {
@@ -299,6 +309,9 @@ func applyTenant(t *Tenant, k, v string) error {
 		t.Name = unquote(v)
 	case "services":
 		for _, s := range parseList(v) {
+			if s == "playwright" {
+				return fmt.Errorf("service %q: %s; drop it from services", s, sidecarRemoved)
+			}
 			if !knownServices[s] {
 				return fmt.Errorf("unknown service %q", s)
 			}
@@ -502,9 +515,6 @@ func (c *Config) Save() error {
 	fmt.Fprintf(&b, "image: %s\n", c.Image)
 	if c.DBImage != "" {
 		fmt.Fprintf(&b, "db_image: %s\n", c.DBImage)
-	}
-	if c.PlaywrightImage != "" {
-		fmt.Fprintf(&b, "playwright_image: %s\n", c.PlaywrightImage)
 	}
 	// Only an override is written back: saving the default would freeze
 	// today's pin into the file, and a newer binary could no longer move it.

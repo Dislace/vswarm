@@ -235,3 +235,18 @@ func TestProvisionWithoutAStagingTreeKeepsWhatAnEarlierOneDelivered(t *testing.T
 		t.Errorf("with --from, record = %v, want %v", record, staged)
 	}
 }
+
+// tenants.yaml can no longer produce ~/.playwright.env, but a workspace that
+// was given one before the sidecar was removed must not keep it.
+func TestProvisionTakesBackTheRetiredPlaywrightContract(t *testing.T) {
+	previous := []string{".config/vswarm/repos", ".playwright.env", ".ssh/vswarm-admin"}
+	staged := []string{".config/vswarm/repos"}
+
+	stale, record := reconcileProvisioned(previous, staged, false)
+	if !reflect.DeepEqual(stale, []string{".playwright.env"}) {
+		t.Errorf("stale = %v, want the retired .playwright.env taken back by `up`", stale)
+	}
+	if want := []string{".config/vswarm/repos", ".ssh/vswarm-admin"}; !reflect.DeepEqual(record, want) {
+		t.Errorf("record = %v, want %v", record, want)
+	}
+}
