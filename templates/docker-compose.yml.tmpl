@@ -73,7 +73,7 @@ services:
       - {{.Source}}:{{.Target}}:ro
 {{- end}}
     tmpfs:
-      - {{$.RunDir}}
+      - {{$.RunDir}}:size={{$.RunSize}}
     ulimits:
       nofile: 4096
     pids_limit: {{$.Pids}}

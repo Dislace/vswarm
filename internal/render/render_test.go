@@ -597,3 +597,19 @@ func TestRenderRunsTheConfiguredProxyAndTunnelImages(t *testing.T) {
 		t.Error("compose still runs a floating :latest image")
 	}
 }
+
+func TestRenderCapsTheWorkspaceRunTmpfs(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain:  "code.example.com",
+		Image:   "registry.example.com/vswarm:v1",
+		Tenants: []config.Tenant{{Email: "a@example.com", Name: "a"}},
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	compose := readFile(t, filepath.Join(GeneratedDir, "docker-compose.yml"))
+	if !strings.Contains(compose, "      - /run:size="+RunSize+"\n") {
+		t.Errorf("workspace /run tmpfs is not capped; its pages count against the tenant's memory limit")
+	}
+}
