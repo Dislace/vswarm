@@ -7,16 +7,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/platform": "0.97.1",
-    "@effect/platform-node": "0.108.1",
+    "@effect/platform": "0.97.2",
+    "@effect/platform-node": "0.108.2",
     "@effect/rpc": "0.76.2",
     "@types/ws": "^8.18.1",
-    "effect": "3.22.1",
+    "effect": "3.22.2",
     "playwright-core": "1.62.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/node": "24.10.1",
+    "@types/node": "24.19.1",
     "typescript": "5.9.3"
   }
 }
