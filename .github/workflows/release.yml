@@ -52,7 +52,7 @@ jobs:
     # Mothership is aarch64 and is the only host that runs a workspace, so the image
     # is built natively on an arm64 runner rather than emulated on an amd64 one.
     # A second platform belongs here when a second architecture runs a tenant.
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     timeout-minutes: 30
     needs: binary
     permissions:
