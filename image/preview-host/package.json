@@ -11,7 +11,7 @@
     "@effect/platform-node": "0.108.1",
     "@effect/rpc": "0.76.2",
     "@types/ws": "^8.18.1",
-    "effect": "3.22.1",
+    "effect": "4.0.1",
     "playwright-core": "1.62.1",
     "ws": "^8.21.3"
   },
