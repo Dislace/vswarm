@@ -30,11 +30,36 @@ const (
 	previewHostEnvPath = render.HomeDir + "/.preview-host.env"
 )
 
+// sessionScopes is what the credential grants: everything an operator's
+// browser does, plus preview:operate for the preview host that shares it. t3
+// split its broad scopes into these finer ones and never widens a stored grant,
+// so a session issued before the split is reissued rather than reused. Naming
+// them rather than taking the CLI's default is what lets reuse check them.
+var sessionScopes = []string{
+	"orchestration:read",
+	"orchestration:operate",
+	"settings:write",
+	"providers:manage",
+	"environment:maintain",
+	"preview:operate",
+	"diagnostics:read",
+	"terminal:read",
+	"terminal:operate",
+	"source-control:write",
+	"filesystem:read",
+	"filesystem:write",
+	"relay:read",
+	"access:read",
+	"access:write",
+	"relay:write",
+}
+
 // session is the shape `t3 auth session` reports. issue returns Token as well;
 // list never does.
 type session struct {
 	SessionID string    `json:"sessionId"`
 	Subject   string    `json:"subject"`
+	Scopes    []string  `json:"scopes"`
 	Token     string    `json:"token"`
 	IssuedAt  time.Time `json:"issuedAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -71,7 +96,7 @@ func reloadProxy() error {
 }
 
 // pairMint reconciles a tenant down to exactly one vswarm session: it reuses
-// the recorded one while it has life left, mints a replacement when it does
+// the recorded one while it has life and every scope left, mints a replacement when it does
 // not, and revokes every other session it owns. Minting unconditionally is
 // what left hundreds of live, fully scoped tokens behind a month of deploys.
 func pairMint(c *config.Config, name string) error {
@@ -145,6 +170,9 @@ func reusable(live []session, id string, now time.Time) bool {
 		if s.SessionID != id || s.Subject != sessionSubject {
 			continue
 		}
+		if !grantsAll(s.Scopes, sessionScopes) {
+			return false
+		}
 		room := sessionRenewBefore
 		if half := s.ExpiresAt.Sub(s.IssuedAt) / 2; half < room {
 			room = half
@@ -152,6 +180,19 @@ func reusable(live []session, id string, now time.Time) bool {
 		return s.ExpiresAt.Sub(now) > room
 	}
 	return false
+}
+
+func grantsAll(have, want []string) bool {
+	granted := make(map[string]bool, len(have))
+	for _, scope := range have {
+		granted[scope] = true
+	}
+	for _, scope := range want {
+		if !granted[scope] {
+			return false
+		}
+	}
+	return true
 }
 
 // staleSessions is every session vswarm owns other than the one in use. It
@@ -200,10 +241,14 @@ func revokeSessions(container string, ids []string) error {
 // stdout rather than stderr and with an exit code alone to go on. `up` is
 // meant to be safe to re-run, so a single lost race must not fail it.
 func issueSession(container, ttl string) (session, error) {
+	args := []string{"vswarm-t3", "cli", "auth", "session", "issue",
+		"--base-dir", t3BaseDir, "--ttl", ttl, "--json",
+		"--subject", sessionSubject, "--label", sessionLabel}
+	for _, scope := range sessionScopes {
+		args = append(args, "--scope", scope)
+	}
 	out, err := retryIssue(sessionIssueAttempts, sessionIssueBackoff, func() (string, error) {
-		return dockerx.Exec(container, "vswarm-t3", "cli", "auth", "session", "issue",
-			"--base-dir", t3BaseDir, "--ttl", ttl, "--json",
-			"--subject", sessionSubject, "--label", sessionLabel)
+		return dockerx.Exec(container, args...)
 	})
 	if err != nil {
 		return session{}, err

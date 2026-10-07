@@ -79,7 +79,16 @@ func TestParseTokenFileReadsAFileWrittenBeforeSessionIdsWereRecorded(t *testing.
 }
 
 func liveSession(id string, issued, expires time.Time) session {
-	return session{SessionID: id, Subject: sessionSubject, IssuedAt: issued, ExpiresAt: expires}
+	return session{SessionID: id, Subject: sessionSubject, Scopes: sessionScopes, IssuedAt: issued, ExpiresAt: expires}
+}
+
+func TestReusableReissuesASessionMissingAScope(t *testing.T) {
+	now := time.Now()
+	s := liveSession("a", now, now.Add(30*24*time.Hour))
+	s.Scopes = []string{"orchestration:read", "orchestration:operate", "terminal:operate"}
+	if reusable([]session{s}, "a", now) {
+		t.Fatal("a session issued before t3 split its scopes lacks preview:operate and must be reissued")
+	}
 }
 
 func TestReusableKeepsASessionWithLifeLeft(t *testing.T) {

@@ -68,12 +68,13 @@ COPY preview-host/*.ts /opt/preview-host/
 # a launcher speaking any other one: 0.0.42 speaks 2, and 0.0.43 onwards wants 3.
 # So this pin is what decides how far a tenant can update itself, and moving it
 # is the only way past a protocol bump -- a launcher cannot install its own
-# replacement. It is a nightly because no 0.0.43 has shipped stable yet.
+# replacement. It is a nightly because `vswarm pair` grants t3's granular
+# permission scopes, and no stable release takes them yet: 0.0.45 has no --scope.
 #
 # It is the last heavy layer because it is the pin that moves most often, and
 # every layer after it is rebuilt and reshipped whenever it does.
 # renovate: datasource=npm depName=t3
-ARG T3_VERSION=0.0.43-nightly.20260917.1851
+ARG T3_VERSION=0.0.46-nightly.20261007.2761
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g "t3@${T3_VERSION}" \
  && npm cache clean --force
