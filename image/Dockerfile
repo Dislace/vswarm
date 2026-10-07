@@ -106,6 +106,15 @@ ENV T3CODE_HOME=/home/ai-agent/.config/t3 \
     T3CODE_HOST=0.0.0.0 \
     T3CODE_PORT=3773 \
     T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD=true
+
+# t3's own headless browser, which drives its browser tabs and HTML previews,
+# starts Chrome with its sandbox by default. That sandbox needs unprivileged user
+# namespaces, which Docker's default seccomp and AppArmor profiles deny in the
+# container, so the browser dies with "No usable sandbox". `t3 browser setup`
+# cannot fix this from inside the container: it loads a host AppArmor profile,
+# and the container still runs under docker-default. The container is the
+# isolation boundary here, as it already is for the preview host's Chromium.
+ENV T3CODE_SERVER_BROWSER_SANDBOX=0
 WORKDIR /home/ai-agent/repos
 
 EXPOSE 3773
