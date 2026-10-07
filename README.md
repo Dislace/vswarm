@@ -86,8 +86,9 @@ else's. Full boundary list and its assumptions: **[THREAT-MODEL.md](THREAT-MODEL
 
 A normal Debian dev box with `sudo`, a writable root filesystem, and t3 — the
 server the workspace *is* — serving the browser UI. Plus git, gh, node, python,
-uv, a build toolchain, and a Chromium the preview tools drive so agents can see
-the page they just changed.
+uv, a build toolchain, and a headless Chromium for test suites. t3 runs its own
+browser in the workspace for the preview tools, so agents can see the page they
+just changed.
 
 Agent CLIs are yours to install, the provider's own way:
 

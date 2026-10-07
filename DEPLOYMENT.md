@@ -206,9 +206,8 @@ follows it. To take back everything a staging tree delivered, provision
 ### Tenant sessions
 
 Angie proxies an authenticated Cloudflare Access identity to a workspace and
-injects that tenant's t3 bearer token; the preview host inside the workspace
-uses the same one. `vswarm pair` owns it, and `vswarm up` runs `pair` for every
-tenant.
+injects that tenant's t3 bearer token. `vswarm pair` owns it, and `vswarm up`
+runs `pair` for every tenant.
 
 **One tenant, one session.** `pair` reconciles rather than mints: it reads the
 session id recorded beside the token in
@@ -453,8 +452,8 @@ the same Playwright version run headless Chromium tests with no download.
 The path is outside `~` and `~/.cache` on purpose: both are named-volume mount
 points and would shadow an image-baked directory at runtime.
 
-Only the headless shell is baked — the preview host and headless test runs use
-nothing else, and the full browser would add about 640MB to every image. A repo
+Only the headless shell is baked — headless test runs use nothing else, and the
+full browser would add about 640MB to every image. A repo
 that needs more — headed Chromium, `channel: 'chromium'`, video recording — or
 pins a *different* Playwright version, points Playwright at the cache volume,
 because the baked directory belongs to root:
@@ -495,13 +494,11 @@ scheme is two levels down, and a certificate covering `*.<zone>` does not
 extend that far — it would need advanced certificate management. `<port>-vs`
 is covered by the certificate the zone already has.
 
-This matters beyond convenience. t3's preview tools drive whichever browser is
-attached, and with the desktop app that browser is on the operator's machine —
-so `localhost:5173` in a preview means *their* laptop, and a workspace dev
-server is invisible to it. t3 refuses its own `environment-port` target for a
-workspace it cannot reach on a private network, naming a preview gateway it has
-not shipped. A public hostname per port sidesteps that: it is an ordinary URL,
-which the preview tools accept from anywhere.
+This matters beyond convenience. A workspace dev server is not on the
+operator's network, so `localhost:5173` in the operator's own browser means
+*their* laptop. A public hostname per port is an ordinary URL that reaches the
+workspace from any browser, and t3's preview tabs, which run in the workspace
+(see [t3's browser](#t3s-browser)), open it the same way.
 
 Three prerequisites live outside this repo, in Cloudflare:
 
@@ -539,54 +536,28 @@ Until the DNS record and the Access application exist, the angie side is inert:
 nothing resolves `<port>-vs`, and the workspace hostname keeps working exactly
 as before.
 
-### Serving t3's preview tools
+### t3's browser
 
-Agents get 14 `preview_*` tools (navigate, click, snapshot, resize, …) whether or
-not anything answers them; without a host they fail with *"No preview automation
-host is available"*, and agents fall back to installing their own browser. The
-preview host closes that gap: it holds one WebSocket to the workspace's own t3
-server, drives the Chromium baked into this image, and answers automation
-requests with Playwright.
+t3 runs its own browser on the server: every preview tab, HTML render and agent
+`preview_*` call drives a Chrome for Testing headless shell inside the
+workspace, and clients watch the tab as a stream. t3 downloads that browser on
+first use, about 120MB, into `${T3CODE_HOME}/tools`, which sits on the work
+volume and survives recreates. It shares no files with the Playwright browser
+above; it relies on the same system libraries, which the image installs with it.
 
-It launches that browser in-process rather than connecting to one over the
-network: Chrome binds its debugging port to loopback regardless of
-`--remote-debugging-address`, which makes a networked CDP endpoint unreliable.
+The image sets `T3CODE_SERVER_BROWSER_SANDBOX=0` because Chrome's sandbox cannot
+start under Docker's default seccomp and AppArmor profiles; the container is the
+isolation boundary.
 
-`preview-host/package.json` pins `playwright-core` to the same version as
-`PLAYWRIGHT_VERSION`. They must move together: the client resolves a browser
-build number from its own version, and a mismatch means the baked browser is
-invisible to it.
+Each streamed tab renders in software, with no GPU, and an active one costs the
+workspace about a CPU core while it scrolls or animates. Size `cpus` with that
+in mind.
 
-The credential is not the operator's to mint: `vswarm pair` delivers
-`~/.preview-host.env` (mode `0600`) with the same session it injects into angie
-(see [Tenant sessions](#tenant-sessions)), over the container's stdin rather
-than argv. `T3_PREVIEW_HOST_TOKEN` in the environment wins over the file, which
-is how a host is run by hand.
-
-`entrypoint.sh` starts the host unconditionally, and the host reads its
-credential once per connection attempt rather than once at startup. That is
-what lets delivery happen after the container is healthy: an attempt made
-before the file exists fails, logs, and backs off, and the one after delivery
-connects. A renewal is picked up the same way, on the next reconnect.
-
-The host authenticates with a bearer header on the WebSocket upgrade. t3 also
-issues browser clients a short-lived ticket via `POST
-/api/auth/websocket-ticket`, but that exists because a browser `WebSocket`
-cannot set headers; a headless host does not need it.
-
-The host advertises 12 of the 14 operations — everything except
-`recordingStart`/`recordingStop`. t3 negotiates capabilities per host and routes
-around what is not advertised, so the remaining two simply stay unavailable
-rather than failing at call time.
-
-
-**One URL in either browser.** With the desktop app attached, t3 drives the
-operator's own browser, which reaches a workspace dev server at
-`https://<port>-<label>.<zone>` through Access and the proxy. Without it, t3
-drives this host's browser, inside the workspace, which has no Access session
-and no route to the proxy — so the host serves that same hostname from
-`127.0.0.1:<port>` directly, websockets included. An agent opens one URL and it
-works in whichever browser the preview turns out to be.
+Earlier releases ran a preview host in the workspace that answered `preview_*`
+from the Playwright browser, with a credential `vswarm pair` delivered as
+`~/.preview-host.env`. t3 now prefers its own browser for agent work, so the
+host is gone, and `pair` deletes that file from any workspace that still has
+it.
 
 ### Admin host SSH access (optional, per tenant)
 
