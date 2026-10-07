@@ -80,7 +80,9 @@ jobs:
       - name: The baked headless shell launches
         run: |
           docker exec ci-workspace sh -c '
-            exec "$(find /opt/ms-playwright -type f -name headless_shell | head -n 1)" \
+            shell="$(find /opt/ms-playwright -type f \( -name headless_shell -o -name chrome-headless-shell \) | head -n 1)"
+            test -n "${shell}" || { echo "no headless shell under /opt/ms-playwright" >&2; exit 1; }
+            exec "${shell}" \
               --no-sandbox --disable-gpu --disable-dev-shm-usage --dump-dom about:blank'
       - name: Stop the workspace
         if: always()
