@@ -53,11 +53,6 @@ RUN --mount=type=cache,target=/root/.npm \
  && chmod -R a+rX /opt/ms-playwright \
  && npm cache clean --force
 
-COPY preview-host/package.json preview-host/package-lock.json /opt/preview-host/
-RUN --mount=type=cache,target=/root/.npm \
-    npm --prefix /opt/preview-host ci --omit=dev
-COPY preview-host/*.ts /opt/preview-host/
-
 # The floor a fresh workspace starts from, and the service launcher every
 # workspace runs under. t3 installs and activates newer runtimes itself, under
 # the tenant's own ${T3CODE_HOME}/runtime, but the launcher supervising them
@@ -113,7 +108,7 @@ ENV T3CODE_HOME=/home/ai-agent/.config/t3 \
 # container, so the browser dies with "No usable sandbox". `t3 browser setup`
 # cannot fix this from inside the container: it loads a host AppArmor profile,
 # and the container still runs under docker-default. The container is the
-# isolation boundary here, as it already is for the preview host's Chromium.
+# isolation boundary here.
 ENV T3CODE_SERVER_BROWSER_SANDBOX=0
 WORKDIR /home/ai-agent/repos
 

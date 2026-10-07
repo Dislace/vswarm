@@ -27,8 +27,7 @@ go test ./...
 make lint         # shellcheck + hadolint on ./image (if installed)
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of the above, checks that the preview
-host and the image agree on a Playwright version, and builds the workspace
+CI (`.github/workflows/ci.yml`) runs all of the above and builds the workspace
 image to verify it can serve.
 
 ## Conventions

@@ -20,44 +20,16 @@ if ! sudo install -d -o ai-agent -g ai-agent -m 0755 /run/vswarm; then
 fi
 
 T3_RUNTIME=/opt/t3-runtime
-PREVIEW_HOST=/opt/preview-host/host.ts
 child_pid=""
-preview_pid=""
 stopping=0
 
 forward() {
   stopping=1
-  for pid in "${child_pid}" "${preview_pid}"; do
-    if [[ -n "${pid}" ]]; then
-      kill -TERM "${pid}" 2>/dev/null || true
-    fi
-  done
+  if [[ -n "${child_pid}" ]]; then
+    kill -TERM "${child_pid}" 2>/dev/null || true
+  fi
 }
 trap forward TERM INT
-
-# The host serves t3's preview automation tools from the browser baked into this
-# image. It needs a credential, delivered either in the environment or as
-# ~/.preview-host.env the way ~/.pg.env is delivered. Starting it unconditionally
-# is what lets `vswarm pair` deliver that file after the container is healthy:
-# the host retries until the credential appears, and idles cheaply until then.
-#
-# It is supervised the way t3 is, and for the same reason: a one-shot child that
-# exits leaves the workspace with no browser until the container is recreated,
-# and agents answer that by installing a browser of their own.
-supervise_preview() {
-  local running=""
-  trap 'kill -TERM "${running}" 2>/dev/null || true; exit 0' TERM
-  while true; do
-    node "${PREVIEW_HOST}" &
-    running=$!
-    wait "${running}" || true
-    running=""
-    sleep 2
-  done
-}
-
-supervise_preview &
-preview_pid=$!
 
 # t3 serves from a runtime it owns under ${T3CODE_HOME}/runtime, so that the
 # app's own update can install a version and switch to it without this image

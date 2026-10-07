@@ -110,12 +110,12 @@ Identity then no longer depends on network layout. Recommended for production.
   bounded in count: `pair` reconciles each tenant to exactly one vswarm-owned
   session and revokes the rest, so a broad token is one credential per tenant
   rather than one per deploy.
-- **Preview automation reaches the viewer's browser, not the workspace.** t3
-  routes an agent's `preview_*` calls to whichever desktop client is focused and
-  runs them against that client's own webview — the browser on the operator's
-  laptop, with the operator's cookies and session. This is upstream's design and
-  it is what makes the agent and the person share one page, but it means the
-  workspace boundary does not contain preview automation: `preview_evaluate` is
-  arbitrary JavaScript on the machine holding the tab. The workspace's own
-  preview host only answers when no client is focused. Treat an agent's preview
-  access as equivalent to handing it the browser you are watching it in.
+- **Preview automation stays in the workspace.** t3 runs an agent's
+  `preview_*` calls in its own headless browser on the workspace, and the
+  operator watches that tab as a stream. `preview_evaluate` is arbitrary
+  JavaScript in the workspace's browser, with that browser's own profile, not
+  the operator's cookies or session. Only a desktop app attached to a server it
+  launched itself renders tabs locally, and a workspace is never that server.
+  The browser runs without Chrome's sandbox (see DEPLOYMENT.md), so a page that
+  escapes the renderer holds the workspace user, which the container already
+  bounds.

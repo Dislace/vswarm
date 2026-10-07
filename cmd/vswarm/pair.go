@@ -27,11 +27,14 @@ const (
 	// own lifetime.
 	sessionRenewBefore = 7 * 24 * time.Hour
 
-	previewHostEnvPath = render.HomeDir + "/.preview-host.env"
+	// No longer written: it carried this credential to a preview host that t3's
+	// own server browser replaced. pair deletes it, since a live token in a
+	// file nothing reads is only exposure.
+	retiredPreviewHostEnv = render.HomeDir + "/.preview-host.env"
 )
 
 // sessionScopes is what the credential grants: everything an operator's
-// browser does, plus preview:operate for the preview host that shares it. t3
+// browser does, including preview:operate to drive t3's browser tabs. t3
 // split its broad scopes into these finer ones and never widens a stored grant,
 // so a session issued before the split is reissued rather than reused. Naming
 // them rather than taking the CLI's default is what lets reuse check them.
@@ -128,7 +131,7 @@ func pairMint(c *config.Config, name string) error {
 		}
 	}
 
-	if err := deliverPreviewHostEnv(container, token); err != nil {
+	if err := removeRetiredPreviewHostEnv(container); err != nil {
 		return err
 	}
 	return revokeSessions(container, staleSessions(live, id))
@@ -281,13 +284,8 @@ func retryIssue(attempts int, backoff time.Duration, run func() (string, error))
 	return out, fmt.Errorf("issue session after %d attempts: %w", attempts, err)
 }
 
-// deliverPreviewHostEnv hands the workspace the same credential angie injects.
-// The token goes over stdin: argv is visible to every process in the
-// container, and the transcript of a deploy is a log.
-func deliverPreviewHostEnv(container, token string) error {
-	body := fmt.Sprintf("T3_PREVIEW_HOST_TOKEN=%s\n", token)
-	_, err := dockerx.ExecStdin(container, body,
-		"sh", "-c", "umask 077; cat > "+previewHostEnvPath)
+func removeRetiredPreviewHostEnv(container string) error {
+	_, err := dockerx.Exec(container, "rm", "-f", retiredPreviewHostEnv)
 	return err
 }
 
