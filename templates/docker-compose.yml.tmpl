@@ -94,6 +94,9 @@ services:
   {{.DBContainer}}:
     image: {{$.DBImage}}
     container_name: {{.DBContainer}}
+    # A development database: specs create and drop databases by the thousand, and
+    # crash safety there costs the host its disk bandwidth.
+    command: ["postgres", "-c", "fsync=off", "-c", "full_page_writes=off", "-c", "synchronous_commit=off", "-c", "wal_level=minimal", "-c", "max_wal_senders=0", "-c", "checkpoint_timeout=30min", "-c", "max_wal_size=4GB"]
     restart: unless-stopped
     networks:
       - {{.Net}}
