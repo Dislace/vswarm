@@ -223,6 +223,26 @@ func TestRenderAppliesStorageDriverToDurableVolumesOnly(t *testing.T) {
 	}
 }
 
+func TestRenderRunsTheTenantDatabaseWithoutCrashSafety(t *testing.T) {
+	chdirTemp(t)
+	c := &config.Config{
+		Domain:    "code.example.com",
+		Image:     "vswarm/workspace:test",
+		DBImage:   "postgres:test",
+		Resources: config.Resources{CPUs: "1", Memory: "1g", Pids: 128},
+		Tenants:   []config.Tenant{{Email: "alice@example.com", Name: "alice", Services: []string{"postgres"}}},
+	}
+	if err := Render(c); err != nil {
+		t.Fatal(err)
+	}
+	db := section(readFile(t, filepath.Join(GeneratedDir, "docker-compose.yml")), "  vswarm-db-alice:")
+	for _, want := range []string{`"fsync=off"`, `"full_page_writes=off"`, `"synchronous_commit=off"`, `"wal_level=minimal"`, `"max_wal_senders=0"`} {
+		if !strings.Contains(db, want) {
+			t.Errorf("tenant database command missing %s, got:\n%s", want, db)
+		}
+	}
+}
+
 func TestResolvePGPasswordPersistsOutsideTheTenantHome(t *testing.T) {
 	chdirTemp(t)
 	c := &config.Config{

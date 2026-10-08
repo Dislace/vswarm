@@ -111,7 +111,7 @@ flowchart TD
     H["/home/ai-agent"]
     H --> W["<b>work</b><br/>checkouts, dirty diffs,<br/>dotfiles, shell history<br/><i>irreplaceable</i>"]
     H --> C["<b>cache</b><br/>npm, bun, go, pip<br/><i>droppable — it refills</i>"]
-    H --> D["<b>dbdata</b><br/>dev postgres<br/><i>copy if it matters</i>"]
+    H --> D["<b>dbdata</b><br/>dev postgres, non-durable<br/><i>a host crash can lose it</i>"]
 ```
 
 One `XDG_CACHE_HOME`-style redirect per toolchain moves most of a home onto the
